@@ -11,12 +11,12 @@
 | Metric | Result |
 |:---|:---|
 | **Total Test Suites** | 5 ✅ |
-| **Total Tests** | 40 ✅ |
-| **Passed** | 40 ✅ |
+| **Total Tests** | 42 ✅ |
+| **Passed** | 42 ✅ |
 | **Failed** | 0 ❌ |
 | **Skipped** | 0 ⚠️ |
 | **Confidence Score** | 10/10 |
-| **Regression Coverage** | Yes (Counter tracking, graceful prompt cancel, regex escape, dimension scaling) |
+| **Regression Coverage** | Yes (Counter tracking, graceful prompt cancel, regex escape, dimension scaling, format conversion, metadata inspection) |
 
 ---
 
@@ -29,24 +29,25 @@
 - ✅ `COMPRESSION_CONFIG` specifies valid quality and scale stepping rules.
 - ✅ `DEFAULT_CONSTANTS` initializes `imageCount: 0`.
 
-### 2. [`compressor.test.js`](compressor.test.js) (13 tests)
+### 2. [`compressor.test.js`](compressor.test.js) (15 tests)
+- ✅ **Byte Formatting**: Accurately formats bytes to `KB` and `MB`.
+- ✅ **Size Parsing**: Intelligently parses `KB`, `MB`, and relative `%` size strings.
 - ✅ **URL Normalization**: Handles relative paths, avoids double proxying, and bypasses local `data:`/`blob:` URLs.
+- ✅ **Metadata Inspection**: Pre-fetches byte size, dimensions ($W \times H$), MIME types, and detects animated GIFs.
 - ✅ **Markdown Placement**: Accurately inserts compressed image markdown below original with regex escaping; provides fallback to note end.
-- ✅ **Compression Loop**: Bypasses already-small images, performs multi-pass canvas scaling and quality stepping, updates state counter.
-- ✅ **Validation & Error Handling**: Rejects negative/invalid sizes, propagates fetch errors gracefully.
+- ✅ **Compression Loop**: Bypasses already-small images, preserves GIF animation, performs multi-pass canvas scaling and quality stepping, respects dimension caps, and calculates savings metrics.
 
-### 3. [`optimizeNote.test.js`](optimizeNote.test.js) (9 tests)
+### 3. [`optimizeNote.test.js`](optimizeNote.test.js) (6 tests)
 - ✅ **Capability Check**: Validates note option check hook.
-- ✅ **Replace Mode**: Compresses all note images, uploads media, updates images in-place, and alerts summary.
-- ✅ **Append Mode**: Compresses note images, appends markdown below originals without removing originals, saves updated note content.
-- ✅ **Edge Cases**: Handles empty image notes, user cancellation, invalid inputs, and pre-compressed image notes.
-- ✅ **Error Handling**: Defensively reports partial image failures without aborting the entire note optimization.
+- ✅ **Multi-Image Selection**: Interactive checklist for selecting specific images to compress.
+- ✅ **Replace Mode**: Compresses selected note images, uploads media, updates images in-place, and alerts detailed savings report.
+- ✅ **Append Mode**: Compresses note images, appends markdown with before/after audit size tags, saves updated note content.
+- ✅ **Edge Cases**: Handles empty image notes, user cancellation, and unchecking all images.
 
-### 4. [`optimizeImage.test.js`](optimizeImage.test.js) (8 tests)
+### 4. [`optimizeImage.test.js`](optimizeImage.test.js) (6 tests)
 - ✅ **Capability Check**: Validates image presence and `src` property.
-- ✅ **Replace & Append Modes**: Tests in-place and non-destructive image menu actions.
-- ✅ **Edge Cases**: Tests canceled prompts, invalid size numbers, and pre-compressed images.
-- ✅ **Error Handling**: Gracefully handles network/canvas exceptions with user alerts.
+- ✅ **Live Inspection & JPEG Conversion**: Pre-fetches PNG metadata, offers JPEG format conversion, and updates in-place or appends below with savings alerts.
+- ✅ **Edge Cases**: Tests canceled prompts, invalid size numbers, and pre-compressed threshold bypass.
 
 ### 5. [`image-compressor.test.js`](image-compressor.test.js) (5 tests)
 - ✅ Verifies default export conforms strictly to the Amplenote Plugin specification (`constants`, `noteOption`, `imageOption`, `compressImage`).

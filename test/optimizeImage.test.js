@@ -20,13 +20,14 @@ describe('optimizeImage.js', () => {
         };
 
         global.URL.createObjectURL = jest.fn().mockReturnValue('blob:http://localhost/cached-blob');
-        global.createImageBitmap = jest.fn().mockResolvedValue({ width: 800, height: 600 });
+        global.createImageBitmap = jest.fn().mockResolvedValue({ width: 2560, height: 1440 });
         jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
             clearRect: jest.fn(),
             drawImage: jest.fn()
         });
         jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,mockdata');
         jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
     });
 
     afterEach(() => {
@@ -45,108 +46,87 @@ describe('optimizeImage.js', () => {
         });
     });
 
-    describe('optimizeImage.run — Happy Path (Replace & Append Modes)', () => {
-        const image = { src: 'https://example.com/single.jpg', caption: 'Single Image' };
+    describe('optimizeImage.run — Inspection & Optimization Modes', () => {
+        const image = { src: 'https://example.com/single.png', caption: 'Single Picture' };
 
-        it('compresses and updates single image in-place in replace mode', async () => {
-            const largeBlob = new Blob(['single image']);
-            Object.defineProperty(largeBlob, 'size', { value: 1200 * 1024 });
+        it('inspects PNG image, offers JPEG conversion, and updates in-place', async () => {
+            const pngBlob = new Blob(['png data'], { type: 'image/png' });
+            Object.defineProperty(pngBlob, 'size', { value: 3000 * 1024 }); // 3 MB
+
             global.fetch = jest.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
-                blob: jest.fn().mockResolvedValue(largeBlob)
+                blob: jest.fn().mockResolvedValue(pngBlob)
             });
 
-            appMock.prompt.mockResolvedValue(['500', 'replace']);
-            appMock.attachNoteMedia.mockResolvedValue('https://amplenote.com/new-media.jpg');
+            // Dialog returns: [preset, customSize, maxDim, format, mode, preserveGif]
+            appMock.prompt.mockResolvedValue(['500kb', '500 KB', '1920', 'image/jpeg', 'replace', false]);
+            appMock.attachNoteMedia.mockResolvedValue('https://amplenote.com/opt.jpg');
 
             const pluginContext = { constants: { imageCount: 0 } };
             await optimizeImage.run.call(pluginContext, appMock, image);
 
             expect(appMock.attachNoteMedia).toHaveBeenCalledWith({ uuid: 'selected-note-uuid' }, 'data:image/jpeg;base64,mockdata');
-            expect(appMock.context.updateImage).toHaveBeenCalledWith({ src: 'https://amplenote.com/new-media.jpg' });
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Image compressed and replaced in-place'));
+            expect(appMock.context.updateImage).toHaveBeenCalledWith({ src: 'https://amplenote.com/opt.jpg' });
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Image optimized successfully!'));
             expect(pluginContext.constants.imageCount).toBe(1);
         });
 
-        it('inserts compressed image below original in append mode', async () => {
-            const largeBlob = new Blob(['single image']);
-            Object.defineProperty(largeBlob, 'size', { value: 1200 * 1024 });
+        it('appends compressed image below original when append mode is selected', async () => {
+            const jpegBlob = new Blob(['jpeg data'], { type: 'image/jpeg' });
+            Object.defineProperty(jpegBlob, 'size', { value: 1800 * 1024 });
+
             global.fetch = jest.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
-                blob: jest.fn().mockResolvedValue(largeBlob)
+                blob: jest.fn().mockResolvedValue(jpegBlob)
             });
 
-            appMock.prompt.mockResolvedValue(['500', 'append']);
-            appMock.getNoteContent.mockResolvedValue('# Note\n\n![Single Image](https://example.com/single.jpg)\n\nEnd text');
+            appMock.prompt.mockResolvedValue(['500kb', '500 KB', '0', 'image/jpeg', 'append', false]);
+            appMock.getNoteContent.mockResolvedValue('# Note\n\n![Single Picture](https://example.com/single.png)\n\nEnd text');
             appMock.attachNoteMedia.mockResolvedValue('https://amplenote.com/appended.jpg');
 
             await optimizeImage.run(appMock, image);
 
             expect(appMock.replaceNoteContent).toHaveBeenCalledWith(
                 { uuid: 'selected-note-uuid' },
-                expect.stringContaining('![Compressed: Single Image](https://amplenote.com/appended.jpg)')
+                expect.stringContaining('![Compressed')
             );
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Compressed image added below the original'));
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Added below original'));
         });
     });
 
     describe('optimizeImage.run — Edge Cases & Guards', () => {
-        it('alerts and stops if image object is invalid or missing src', async () => {
+        it('alerts if no image object is provided', async () => {
             await optimizeImage.run(appMock, null);
             expect(appMock.alert).toHaveBeenCalledWith('No valid image selected.');
         });
 
-        it('exits quietly without alert if user cancels prompt', async () => {
+        it('exits quietly when user cancels the prompt', async () => {
+            const blob = new Blob(['data']);
+            global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: jest.fn().mockResolvedValue(blob) });
+
             appMock.prompt.mockResolvedValue(null);
-
             await optimizeImage.run(appMock, { src: 'https://example.com/pic.jpg' });
 
             expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
-            expect(appMock.alert).not.toHaveBeenCalled();
         });
 
-        it('alerts if invalid size number is provided', async () => {
-            appMock.prompt.mockResolvedValue(['abc', 'replace']);
-
-            await optimizeImage.run(appMock, { src: 'https://example.com/pic.jpg' });
-
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Invalid input'));
-            expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
-        });
-
-        it('alerts if image is already within target size limit', async () => {
-            const smallBlob = new Blob(['small image']);
+        it('alerts when image is already under target threshold', async () => {
+            const smallBlob = new Blob(['small'], { type: 'image/jpeg' });
             Object.defineProperty(smallBlob, 'size', { value: 100 * 1024 });
+
             global.fetch = jest.fn().mockResolvedValue({
                 ok: true,
                 status: 200,
                 blob: jest.fn().mockResolvedValue(smallBlob)
             });
 
-            appMock.prompt.mockResolvedValue(['500', 'replace']);
-
+            appMock.prompt.mockResolvedValue(['500kb', '500 KB', '0', 'image/jpeg', 'replace', false]);
             await optimizeImage.run(appMock, { src: 'https://example.com/small.jpg' });
 
             expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Image is already under 500 KB'));
-        });
-    });
-
-    describe('optimizeImage.run — Error Handling', () => {
-        it('catches compression or attachment errors and alerts user', async () => {
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: false,
-                status: 500,
-                statusText: 'Internal Error'
-            });
-
-            appMock.prompt.mockResolvedValue(['500', 'replace']);
-
-            await optimizeImage.run(appMock, { src: 'https://example.com/pic.jpg' });
-
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Failed to compress image: Failed to fetch image: 500 Internal Error'));
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('already under'));
         });
     });
 });

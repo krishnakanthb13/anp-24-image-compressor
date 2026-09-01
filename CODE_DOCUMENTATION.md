@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Image Compressor Plugin** enables Amplenote users to compress and optimize images in their notes. The plugin utilizes a modular architecture designed for high testability, safety, and zero external runtime dependencies.
+The **Image Compressor Plugin** inspects, analyzes, and compresses images within Amplenote notes. The codebase features real-time metadata analysis, multi-image interactive checklists, unit-aware size parsing (KB, MB, %), format conversion, resolution limiting, and non-destructive audit tagging.
 
 ---
 
@@ -11,8 +11,8 @@ The **Image Compressor Plugin** enables Amplenote users to compress and optimize
 ### 1. Main Entry Point (`image-compressor.js`)
 - Exposes standard Amplenote API hook points:
   - `constants`: Default state (`imageCount: 0`).
-  - `noteOption["Optimize note"]`: Whole-note optimization workflow.
-  - `imageOption["Compress image"]`: Single-image dropdown workflow.
+  - `noteOption["Optimize note"]`: Multi-image checklist optimization workflow.
+  - `imageOption["Compress image"]`: Live image inspection and compression workflow.
   - `compressImage`: Engine method exported on the plugin root.
 
 ---
@@ -20,65 +20,83 @@ The **Image Compressor Plugin** enables Amplenote users to compress and optimize
 ### 2. Constants & Configuration (`lib/constants.js`)
 - `CORS_PROXY_URL`: Pinned HTTPS proxy for routing external media URLs.
 - `DEFAULT_MAX_SIZE_KB`: Configured to `500` (derived from `ds.md` specification).
-- `COMPRESSION_MODES`:
-  - `REPLACE = "replace"`: In-place update of image references.
-  - `APPEND = "append"`: Insertion of compressed image markdown below original.
-- `COMPRESSION_CONFIG`:
-  - `initialQuality`: `0.9`
-  - `minQuality`: `0.1`
-  - `qualityStep`: `0.1`
-  - `scaleStep`: `0.8` (downscales dimensions by 20% per pass if quality reduction is insufficient)
-  - `minDimension`: `100` px floor
+- `SIZE_PRESETS`:
+  - `500kb`: Standard / Web (500 KB)
+  - `250kb`: Mobile / Fast Load (250 KB)
+  - `100kb`: Compact / Thumbnail (100 KB)
+  - `50%`: 50% of Current Size
+  - `25%`: 25% of Current Size
+  - `custom`: Custom user input
+- `DIMENSION_LIMITS`:
+  - `0`: Keep original dimensions
+  - `1920`: Max 1920 px (Full HD)
+  - `1280`: Max 1280 px (Standard HD)
+  - `800`: Max 800 px (Small / Inline)
+- `COMPRESSION_MODES`: `REPLACE = "replace"`, `APPEND = "append"`.
+- `COMPRESSION_CONFIG`: Stepping rules (`initialQuality = 0.9`, `minQuality = 0.1`, `qualityStep = 0.1`, `scaleStep = 0.8`, `minDimension = 100`).
 
 ---
 
 ### 3. Compression Engine (`lib/compressor.js`)
-Contains pure and stateful utility functions:
 
-#### `resolveImageUrl(rawUrl, proxyUrl)`
-- Validates the incoming URL.
-- Leaves `data:` and `blob:` URLs untouched.
-- Avoids double-proxying if the string is already prefixed with `proxyUrl`.
+#### `formatBytes(bytes)`
+- Formats raw byte counts into human-readable strings (`"450 KB"`, `"2.35 MB"`).
+
+#### `parseSizeInput(input, originalSizeBytes)`
+- Intelligent unit parser supporting:
+  - Raw numbers and `"KB"` strings (e.g. `"500"`, `"500kb"`).
+  - Megabytes (e.g. `"1.5mb"`, `"2m"`).
+  - Relative percentages (e.g. `"50%"` calculates half of `originalSizeBytes`).
+
+#### `fetchImageMetadata(imageUrl, proxyUrl)`
+- Pre-fetches the image blob and extracts:
+  - `size` & `formattedSize` (e.g. `2.45 MB`).
+  - `width` & `height` via `createImageBitmap(blob)`.
+  - `mimeType` (`image/jpeg`, `image/png`, `image/webp`, `image/gif`).
+  - `isGif` detection for animation preservation.
 
 #### `insertImageBelow(content, originalSrc, newSrc, caption)`
 - Safely escapes regex metacharacters in `originalSrc`.
 - Matches markdown image pattern `![optional caption](originalSrc)` and injects `![caption](newSrc)` directly beneath it.
-- Falls back to appending at the end of the note if the exact markdown pattern cannot be matched.
+- Falls back to appending at note end if the exact markdown pattern is not found.
 
-#### `compressImage(imageUrl, targetSizeKB, state)`
-- Converts `targetSizeKB` to bytes (`targetSizeKB * 1024`).
-- Fetches the image via `fetch()` and checks `blob.size`. If already `<= targetSizeBytes`, returns `URL.createObjectURL(blob)` immediately (zero-overhead bypass).
-- Decodes the blob with `createImageBitmap(blob)`.
-- Renders to an offscreen HTML5 `<canvas>`.
-- **Quality & Scaling Loop**:
-  1. Iterates from `quality = 0.9` down to `0.1`.
-  2. Estimates compressed byte size via base64 length (`dataUrl.length * 0.75`).
-  3. If quality reduction alone cannot satisfy the target size (common for high-resolution images), decreases canvas dimensions by `scaleStep = 0.8` and re-runs the quality stepping.
-- Increments `state.imageCount` upon successful compression.
+#### `compressImage(imageSource, targetSizeBytes, options, state)`
+- Accepts a URL string or pre-fetched `Blob`.
+- Checks `options.preserveGif` to prevent flattening animated GIFs.
+- Applies `options.maxDimension` proportionally if the image exceeds the width limit.
+- Checks if original image already complies with size and dimension constraints (zero-overhead bypass).
+- **Multi-Pass Loop**:
+  1. Draws image to an offscreen `<canvas>` at current scale.
+  2. Steps down JPEG quality from `0.9` to `0.1`.
+  3. If still oversized, scales down dimensions by `scaleStep = 0.8` and repeats quality reduction.
+- Returns `{ dataUrl, skipped, originalBytes, finalBytes, savingsPercent, width, height }`.
 
 ---
 
 ### 4. Note Optimizer (`lib/optimizeNote.js`)
 - **Workflow**:
-  1. Identifies the active note (`noteUUID` or `app.context.noteUUID`).
-  2. Calls `app.getNoteImages(noteHandle)`. If empty, alerts and terminates early.
-  3. Prompts user for max size (default `500` KB) and output mode (`replace` vs. `append`).
-  4. Iterates through all images, resolving proxy URLs and calling `compressImage`.
-  5. If `dataURL` starts with `blob:`, increments `skippedCount` and skips re-uploading.
-  6. Attaches media via `app.attachNoteMedia(noteHandle, dataURL)`.
-  7. In `replace` mode: calls `app.updateNoteImage(noteHandle, img, { src: fileURL })`.
-  8. In `append` mode: builds updated note markdown via `insertImageBelow` and applies it in a single atomic `app.replaceNoteContent` call.
-  9. Displays an informative summary alert detailing compressed, skipped, and failed counts.
+  1. Pre-fetches metadata for all images in parallel (`fetchImageMetadata`).
+  2. Builds an interactive prompt with:
+     - Checkbox for each image (pre-checked if $> 500$ KB).
+     - Target size preset profile selector.
+     - Custom target size input (KB/MB/%).
+     - Max width dimension constraint.
+     - Format optimization (PNG/WebP to JPEG).
+     - Output placement mode (`replace` vs. `append`).
+     - GIF preservation checkbox.
+  3. Compresses selected images, uploading via `app.attachNoteMedia`.
+  4. In `append` mode, tags captions with `![Compressed (480 KB from 3.2 MB): Caption](...)` and applies atomic `app.replaceNoteContent`.
+  5. In `replace` mode, updates note image references via `app.updateNoteImage`.
+  6. Displays a comprehensive savings report with total note size before, after, and space saved.
 
 ---
 
 ### 5. Single Image Optimizer (`lib/optimizeImage.js`)
 - **Workflow**:
-  1. Implements `check(app, image)` to ensure valid image selection.
-  2. Prompts user for size threshold and output mode.
-  3. Compresses image and attaches media.
-  4. In `replace` mode: updates image via `app.context.updateImage` / `app.updateNoteImage`.
-  5. In `append` mode: updates note content via `insertImageBelow` and `app.replaceNoteContent`.
+  1. Implements `check(app, image)` for valid image selection.
+  2. Pre-fetches metadata and displays live image statistics (size in bytes/KB/MB, resolution, format) in the dialog prompt.
+  3. Allows configuring presets, custom size (KB/MB/%), dimension caps, format conversions, and placement modes.
+  4. Executes compression and delivers an instant savings summary.
 
 ---
 
