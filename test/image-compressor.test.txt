@@ -1,0 +1,40 @@
+================================================================================
+Test Report — Image Compressor (anp-24)
+================================================================================
+
+Summary Metrics:
+--------------------------------------------------------------------------------
+Total Test Suites   : 5 passed (5 total)
+Total Tests         : 40 passed (40 total)
+Failed Tests        : 0
+Skipped Tests       : 0
+Execution Time      : 3.568s
+Confidence Score    : 10/10
+Regression Coverage : Yes (Counter bug, prompt cancel, scaling floor, error alerts)
+
+Test Suites Breakdown:
+--------------------------------------------------------------------------------
+1. constants.test.js (5 tests)
+   - Happy Path & Defaults (CORS proxy, 500KB default, modes, config, initial state)
+
+2. compressor.test.js (13 tests)
+   - resolveImageUrl: Happy path, blob/data URLs, proxy prefix, deduplication
+   - insertImageBelow: Markdown insertion, regex escaping, fallback placement
+   - compressImage: Size threshold bypass, canvas quality/scale loop, validation, error propagation
+
+3. optimizeNote.test.js (9 tests)
+   - Check method verification
+   - Happy Path: Replace mode in-place update, Append mode markdown insertion
+   - Edge Cases: Empty note image check, user cancellation, invalid number input, size bypass
+   - Error Handling: Partial network/image failure reporting
+
+4. optimizeImage.test.js (8 tests)
+   - Check method validation for image src
+   - Happy Path: Single image in-place replacement, single image append below
+   - Edge Cases: Missing image object, prompt cancellation, invalid input, pre-compressed bypass
+   - Error Handling: Attachment and canvas error alert handling
+
+5. image-compressor.test.js (5 tests)
+   - Plugin definition structure conforming to Amplenote API specification
+   - Constants, noteOption, imageOption, and compressImage exports
+================================================================================

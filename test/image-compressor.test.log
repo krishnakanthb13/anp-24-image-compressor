@@ -1,0 +1,73 @@
+PASS anp-24-image-compressor/test/image-compressor.test.js
+  image-compressor.js — Plugin Definition
+    Entry Point Structure — Happy Path
+      √ exports a valid plugin object conforming to Amplenote API spec (15 ms)
+      √ contains initial constants with imageCount 0 (1 ms)
+      √ exposes "Optimize note" under noteOption (2 ms)
+      √ exposes "Compress image" under imageOption (1 ms)
+      √ exposes compressImage engine method (1 ms)
+
+PASS anp-24-image-compressor/test/constants.test.js
+  constants.js
+    Constants — Happy Path & Defaults
+      √ exports correct CORS_PROXY_URL (13 ms)
+      √ exports default max size of 500 KB per ds.md specification
+      √ defines replace and append compression modes (1 ms)
+      √ provides valid compression step configuration (2 ms)
+      √ initializes default image count state to 0
+
+PASS anp-24-image-compressor/test/compressor.test.js
+  compressor.js
+    resolveImageUrl — Happy Path & Edge Cases
+      √ returns empty string when url is empty or null (23 ms)
+      √ leaves data URLs untouched without proxying (1 ms)
+      √ leaves blob URLs untouched without proxying (1 ms)
+      √ prepends proxy URL to standard relative or absolute URLs (1 ms)
+      √ avoids double-proxying if URL already starts with proxy base
+    insertImageBelow — Happy Path & Edge Cases
+      √ inserts compressed image directly below matched original markdown image (1 ms)
+      √ handles regex special characters safely in URL (1 ms)
+      √ falls back to appending at end of note if original image markdown is not found (1 ms)
+      √ returns input safely when arguments are missing (1 ms)
+    compressImage — Happy Path, Compression Loop & Fallbacks
+      √ returns original blob object URL if image is already within target size limit (5 ms)
+      √ compresses large image, performs canvas draw and increments state counter (5 ms)
+      √ throws error when target size is invalid or non-positive (18 ms)
+      √ throws error when image fetch fails (1 ms)
+
+PASS anp-24-image-compressor/test/optimizeNote.test.js
+  optimizeNote.js
+    optimizeNote.check
+      √ returns true for checking capability (6 ms)
+    optimizeNote.run — Happy Path (Replace & Append Modes)
+      √ compresses and replaces image in-place when replace mode is chosen (9 ms)
+      √ appends compressed image below original when append mode is chosen (3 ms)
+    optimizeNote.run — Edge Cases & Guards
+      √ alerts and stops if no images are present in the note (2 ms)
+      √ exits gracefully without alert when prompt is canceled by user (2 ms)
+      √ alerts invalid input if non-numeric or non-positive value entered (1 ms)
+      √ reports when all images are already under the target size (2 ms)
+    optimizeNote.run — Error Handling
+      √ handles individual image failure and reports failure count (1 ms)
+
+PASS anp-24-image-compressor/test/optimizeImage.test.js
+  optimizeImage.js
+    optimizeImage.check
+      √ returns true when valid image with src is provided (6 ms)
+      √ returns false when image or src is missing (1 ms)
+    optimizeImage.run — Happy Path (Replace & Append Modes)
+      √ compresses and updates single image in-place in replace mode (10 ms)
+      √ inserts compressed image below original in append mode (3 ms)
+    optimizeImage.run — Edge Cases & Guards
+      √ alerts and stops if image object is invalid or missing src (2 ms)
+      √ exits quietly without alert if user cancels prompt (24 ms)
+      √ alerts if invalid size number is provided (1 ms)
+      √ alerts if image is already within target size limit (13 ms)
+    optimizeImage.run — Error Handling
+      √ catches compression or attachment errors and alerts user (3 ms)
+
+Test Suites: 5 passed, 5 total
+Tests:       40 passed, 40 total
+Snapshots:   0 total
+Time:        3.568 s
+Ran all test suites matching /anp-24-image-compressor/test/i.
