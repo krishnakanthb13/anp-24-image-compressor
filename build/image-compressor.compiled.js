@@ -5,8 +5,9 @@ var DEFAULT_MAX_SIZE_KB = 500;
 var LIGHTWEIGHT_THRESHOLD_KB = 150;
 var COMPRESSION_MODES = {
   REPLACE: "replace",
-  APPEND: "append"
+  NEW_NOTE: "new_note"
 };
+var REPORT_TAG = "-reports/-image-compressor";
 var COMPRESSION_CONFIG = {
   initialQuality: 0.9,
   minQuality: 0.1,
@@ -272,19 +273,6 @@ async function fetchImageMetadata(imageUrl, proxyUrl = CORS_PROXY_URL) {
     isGif
   };
 }
-function insertImageBelow(content, originalSrc, newSrc, auditCaption = "Compressed") {
-  if (!content || !originalSrc || !newSrc) return content || "";
-  const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(!\\[[^\\]]*\\]\\(${escapedSrc}\\))`);
-  const cleanCaption = auditCaption ? String(auditCaption).replace(/[\[\]]/g, "") : "Compressed";
-  const newImageBlock = `
-
-![${cleanCaption}](${newSrc})`;
-  if (regex.test(content)) {
-    return content.replace(regex, `$1${newImageBlock}`);
-  }
-  return `${content}${newImageBlock}`;
-}
 async function compressImage(imageSource, targetSizeBytes, options = {}, state = null) {
   if (isNaN(targetSizeBytes) || targetSizeBytes <= 0) {
     throw new Error("Invalid target size specified for compression");
@@ -395,6 +383,104 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
     height: canvas.height
   };
 }
+async function updateImageSurgically(app, noteHandle, image, updates) {
+  if (!app || !image) return false;
+  if (app.context?.updateImage) {
+    await app.context.updateImage(updates);
+    return true;
+  }
+  if (typeof app.updateNoteImage === "function" && noteHandle) {
+    await app.updateNoteImage(noteHandle, image, updates);
+    return true;
+  }
+  if (app.notes && typeof app.notes.find === "function") {
+    const targetUUID = noteHandle?.uuid || app.context?.noteUUID;
+    if (targetUUID) {
+      const note = await app.notes.find(targetUUID);
+      if (note && typeof note.updateImage === "function") {
+        await note.updateImage(image, updates);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+async function createCompressionReportNote(app, originalNoteUUID, items, tag = REPORT_TAG) {
+  const now = /* @__PURE__ */ new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const title = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const reportUUID = await app.createNote(title, [tag]);
+  const reportHandle = { uuid: reportUUID };
+  for (const item of items) {
+    if (!item.fileURL && item.dataUrl && typeof app.attachNoteMedia === "function") {
+      try {
+        item.fileURL = await app.attachNoteMedia(reportHandle, item.dataUrl);
+      } catch (attErr) {
+        console.warn("Could not attach media to report note:", attErr);
+      }
+    }
+  }
+  const totalOriginal = items.reduce((sum, item) => sum + (item.originalBytes || 0), 0);
+  const totalFinal = items.reduce((sum, item) => sum + (item.finalBytes || 0), 0);
+  const totalSaved = totalOriginal > totalFinal ? totalOriginal - totalFinal : 0;
+  const totalPercent = totalOriginal > 0 ? Math.round(totalSaved / totalOriginal * 100) : 0;
+  let markdown = `# ${title}
+
+`;
+  if (originalNoteUUID) {
+    markdown += `> \u{1F4CC} Source Note: [Open Original Note](https://www.amplenote.com/notes/${originalNoteUUID})
+
+`;
+  }
+  markdown += `## Compressed Images (${items.length})
+
+`;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const caption = `Image ${i + 1} \u2022 ${item.afterStr} (was ${item.beforeStr} \u2014 ${item.percentSaved}% saved)`;
+    if (item.fileURL) {
+      markdown += `![${caption}](${item.fileURL})
+
+`;
+    }
+  }
+  markdown += `---
+
+`;
+  markdown += `## Summary Statistics
+`;
+  markdown += `- **Images Exported:** ${items.length}
+`;
+  markdown += `- **Original Total Size:** ${formatBytes(totalOriginal)}
+`;
+  markdown += `- **Optimized Total Size:** ${formatBytes(totalFinal)}
+`;
+  markdown += `- **Total Bandwidth Saved:** ${formatBytes(totalSaved)} (${totalPercent}% reduction)
+`;
+  if (typeof app.insertNoteContent === "function") {
+    await app.insertNoteContent(reportHandle, markdown);
+  } else if (typeof app.replaceNoteContent === "function") {
+    await app.replaceNoteContent(reportHandle, markdown);
+  }
+  try {
+    if (typeof app.getNoteImages === "function" && typeof app.updateNoteImage === "function") {
+      const freshImages = await app.getNoteImages(reportHandle);
+      if (freshImages && Array.isArray(freshImages)) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const imgNode = freshImages.find((img) => img.src === item.fileURL);
+          if (imgNode) {
+            const caption = `Image ${i + 1} \u2022 ${item.afterStr} (was ${item.beforeStr} \u2014 ${item.percentSaved}% saved)`;
+            await app.updateNoteImage(reportHandle, imgNode, { caption });
+          }
+        }
+      }
+    }
+  } catch (bindErr) {
+    console.warn("Could not bind native captions to report images:", bindErr);
+  }
+  return reportUUID;
+}
 
 // anp-24-image-compressor/lib/optimizeNote.js
 var optimizeNote = {
@@ -487,7 +573,7 @@ var optimizeNote = {
         let processedCount = 0;
         let skippedCount = 0;
         let failedCount = 0;
-        let appendReplacements = [];
+        let newNoteItems = [];
         if (isBatch) {
           const maxImgBytes = Math.max(...selectedImages.map((img) => img.size || 0));
           const smartPresets = getSmartSizePresets(maxImgBytes);
@@ -529,8 +615,8 @@ var optimizeNote = {
               label: "Output Mode",
               type: "select",
               options: [
-                { label: "Replace existing images in-place", value: COMPRESSION_MODES.REPLACE },
-                { label: "Add compressed images below originals (Keep originals)", value: COMPRESSION_MODES.APPEND }
+                { label: "Replace existing images in-place (Surgical)", value: COMPRESSION_MODES.REPLACE },
+                { label: `Save to new report note in ${REPORT_TAG}`, value: COMPRESSION_MODES.NEW_NOTE }
               ],
               value: COMPRESSION_MODES.REPLACE
             },
@@ -577,18 +663,24 @@ var optimizeNote = {
               if (result.skipped) {
                 skippedCount += 1;
               } else {
-                const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
                 const beforeStr = formatBytes(result.originalBytes);
                 const afterStr = formatBytes(result.finalBytes);
                 const percentSaved2 = result.savingsPercent;
                 const existingCaption = img.caption ? `${img.caption} \u2022 ` : "";
                 const auditCaption = `${existingCaption}Compressed: ${afterStr} (was ${beforeStr} \u2014 ${percentSaved2}% saved)`;
-                if (mode === COMPRESSION_MODES.APPEND) {
-                  appendReplacements.push({ originalSrc: img.src, newSrc: fileURL, auditCaption });
+                if (mode === COMPRESSION_MODES.NEW_NOTE) {
+                  newNoteItems.push({
+                    dataUrl: result.dataUrl,
+                    caption: auditCaption,
+                    beforeStr,
+                    afterStr,
+                    percentSaved: percentSaved2,
+                    originalBytes: result.originalBytes,
+                    finalBytes: result.finalBytes
+                  });
                 } else {
-                  if (app.updateNoteImage) {
-                    await app.updateNoteImage(noteHandle, img, { src: fileURL, caption: auditCaption });
-                  }
+                  const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
+                  await updateImageSurgically(app, noteHandle, img, { src: fileURL, caption: auditCaption });
                 }
                 processedCount += 1;
               }
@@ -640,8 +732,8 @@ var optimizeNote = {
                 label: "Output Mode",
                 type: "select",
                 options: [
-                  { label: "Replace existing image in-place", value: COMPRESSION_MODES.REPLACE },
-                  { label: "Add compressed image below original (Keep original)", value: COMPRESSION_MODES.APPEND }
+                  { label: "Replace existing image in-place (Surgical)", value: COMPRESSION_MODES.REPLACE },
+                  { label: `Save to new report note in ${REPORT_TAG}`, value: COMPRESSION_MODES.NEW_NOTE }
                 ],
                 value: COMPRESSION_MODES.REPLACE
               },
@@ -688,18 +780,24 @@ var optimizeNote = {
               if (result.skipped) {
                 skippedCount += 1;
               } else {
-                const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
                 const beforeStr = formatBytes(result.originalBytes);
                 const afterStr = formatBytes(result.finalBytes);
                 const percentSaved2 = result.savingsPercent;
                 const existingCaption = img.caption ? `${img.caption} \u2022 ` : "";
                 const auditCaption = `${existingCaption}Compressed: ${afterStr} (was ${beforeStr} \u2014 ${percentSaved2}% saved)`;
-                if (mode === COMPRESSION_MODES.APPEND) {
-                  appendReplacements.push({ originalSrc: img.src, newSrc: fileURL, auditCaption });
+                if (mode === COMPRESSION_MODES.NEW_NOTE) {
+                  newNoteItems.push({
+                    dataUrl: result.dataUrl,
+                    caption: auditCaption,
+                    beforeStr,
+                    afterStr,
+                    percentSaved: percentSaved2,
+                    originalBytes: result.originalBytes,
+                    finalBytes: result.finalBytes
+                  });
                 } else {
-                  if (app.updateNoteImage) {
-                    await app.updateNoteImage(noteHandle, img, { src: fileURL, caption: auditCaption });
-                  }
+                  const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
+                  await updateImageSurgically(app, noteHandle, img, { src: fileURL, caption: auditCaption });
                 }
                 processedCount += 1;
               }
@@ -709,25 +807,8 @@ var optimizeNote = {
             }
           }
         }
-        if (appendReplacements.length > 0) {
-          let noteContent = await app.getNoteContent(noteHandle);
-          for (const item of appendReplacements) {
-            noteContent = insertImageBelow(noteContent, item.originalSrc, item.newSrc, item.auditCaption);
-          }
-          await app.replaceNoteContent(noteHandle, noteContent);
-          try {
-            const freshImages = await app.getNoteImages(noteHandle);
-            if (freshImages && app.updateNoteImage) {
-              for (const item of appendReplacements) {
-                const newImg = freshImages.find((i) => i.src === item.newSrc);
-                if (newImg) {
-                  await app.updateNoteImage(noteHandle, newImg, { caption: item.auditCaption });
-                }
-              }
-            }
-          } catch (syncErr) {
-            console.warn("Could not bind native captions to appended images:", syncErr);
-          }
+        if (newNoteItems.length > 0) {
+          await createCompressionReportNote(app, noteUUID, newNoteItems);
         }
         if (this?.constants && typeof this.constants.imageCount === "number") {
           this.constants.imageCount += processedCount;
@@ -739,7 +820,7 @@ var optimizeNote = {
         let report = `\u{1F389} Note Optimization Completed!
 
 `;
-        report += `\u2022 Images Optimized: ${processedCount} of ${selectedImages.length}
+        report += `\u2022 Images Processed: ${processedCount} of ${selectedImages.length}
 `;
         if (skippedCount > 0) {
           report += `\u2022 Already Under Target (Skipped): ${skippedCount}
@@ -755,7 +836,13 @@ var optimizeNote = {
 `;
         report += `\u2022 Total Space Saved: ${formatBytes(spaceSaved)} (${percentSaved}% reduction)
 `;
-        report += `\u2022 Captions: Updated with compression metrics`;
+        if (newNoteItems.length > 0) {
+          report += `\u2022 Exported: Saved to new note under "${REPORT_TAG}"
+`;
+          report += `\u2022 Original Note: Completely untouched`;
+        } else {
+          report += `\u2022 Mode: Replaced in-place surgically (note structure preserved)`;
+        }
         await app.alert(report);
       } catch (error) {
         console.error("Error optimizing note images:", error);
@@ -844,8 +931,8 @@ var optimizeImage = {
             label: "Output Mode",
             type: "select",
             options: [
-              { label: "Replace existing image in-place", value: COMPRESSION_MODES.REPLACE },
-              { label: "Add compressed image below original (Keep original)", value: COMPRESSION_MODES.APPEND }
+              { label: "Replace existing image in-place (Surgical)", value: COMPRESSION_MODES.REPLACE },
+              { label: `Save to new report note in ${REPORT_TAG}`, value: COMPRESSION_MODES.NEW_NOTE }
             ],
             value: COMPRESSION_MODES.REPLACE
           },
@@ -890,57 +977,62 @@ var optimizeImage = {
         }
         const noteUUID = app.context?.noteUUID;
         const noteHandle = noteUUID ? { uuid: noteUUID } : null;
-        if (!noteHandle) {
-          await app.alert("Could not identify the note containing this image.");
-          return;
-        }
-        const fileURL = await app.attachNoteMedia(noteHandle, compressResult.dataUrl);
         const beforeStr = formatBytes(compressResult.originalBytes);
         const afterStr = formatBytes(compressResult.finalBytes);
         const percentSaved = compressResult.savingsPercent;
         const existingCaption = image.caption ? `${image.caption} \u2022 ` : "";
         const auditCaption = `${existingCaption}Compressed: ${afterStr} (was ${beforeStr} \u2014 ${percentSaved}% saved)`;
-        if (mode === COMPRESSION_MODES.APPEND) {
-          const noteContent = await app.getNoteContent(noteHandle);
-          const updatedContent = insertImageBelow(noteContent, image.src, fileURL, auditCaption);
-          await app.replaceNoteContent(noteHandle, updatedContent);
-          try {
-            if (typeof app.getNoteImages === "function") {
-              const freshImages = await app.getNoteImages(noteHandle);
-              const newImg = freshImages?.find((i) => i.src === fileURL);
-              if (newImg && typeof app.updateNoteImage === "function") {
-                await app.updateNoteImage(noteHandle, newImg, { caption: auditCaption });
-              }
-            }
-          } catch (syncErr) {
-            console.warn("Could not bind native caption to appended image:", syncErr);
-          }
+        const spaceSaved = compressResult.originalBytes > compressResult.finalBytes ? compressResult.originalBytes - compressResult.finalBytes : 0;
+        if (mode === COMPRESSION_MODES.NEW_NOTE) {
+          const reportItem = {
+            dataUrl: compressResult.dataUrl,
+            caption: auditCaption,
+            beforeStr,
+            afterStr,
+            percentSaved,
+            originalBytes: compressResult.originalBytes,
+            finalBytes: compressResult.finalBytes
+          };
+          await createCompressionReportNote(app, noteUUID, [reportItem]);
+          let report = `\u{1F389} Image compressed & exported to new note!
+
+`;
+          report += `\u2022 Before: ${beforeStr}
+`;
+          report += `\u2022 After: ${afterStr}
+`;
+          report += `\u2022 Space Saved: ${formatBytes(spaceSaved)} (${percentSaved}% reduction)
+`;
+          report += `\u2022 Saved Under Tag: "${REPORT_TAG}"
+`;
+          report += `\u2022 Original Note: Completely untouched`;
+          await app.alert(report);
         } else {
-          if (app.context?.updateImage) {
-            await app.context.updateImage({ src: fileURL, caption: auditCaption });
-          } else if (app.updateNoteImage) {
-            await app.updateNoteImage(noteHandle, image, { src: fileURL, caption: auditCaption });
+          if (!noteHandle) {
+            await app.alert("Could not identify the note containing this image.");
+            return;
           }
+          const fileURL = await app.attachNoteMedia(noteHandle, compressResult.dataUrl);
+          await updateImageSurgically(app, noteHandle, image, { src: fileURL, caption: auditCaption });
+          let report = `\u{1F389} Image optimized surgically in-place!
+
+`;
+          report += `\u2022 Before: ${beforeStr}
+`;
+          report += `\u2022 After: ${afterStr}
+`;
+          report += `\u2022 Space Saved: ${formatBytes(spaceSaved)} (${percentSaved}% reduction)
+`;
+          report += `\u2022 Caption: Updated with compression metrics
+`;
+          report += `\u2022 Note Content: Surrounding text and structure 100% preserved`;
+          await app.alert(report);
         }
         if (this?.constants && typeof this.constants.imageCount === "number") {
           this.constants.imageCount += 1;
         } else if (typeof DEFAULT_CONSTANTS?.imageCount === "number") {
           DEFAULT_CONSTANTS.imageCount += 1;
         }
-        const spaceSaved = compressResult.originalBytes > compressResult.finalBytes ? compressResult.originalBytes - compressResult.finalBytes : 0;
-        let report = `\u{1F389} Image optimized successfully!
-
-`;
-        report += `\u2022 Before: ${beforeStr}
-`;
-        report += `\u2022 After: ${afterStr}
-`;
-        report += `\u2022 Space Saved: ${formatBytes(spaceSaved)} (${percentSaved}% reduction)
-`;
-        report += `\u2022 Caption Updated: "${auditCaption}"
-`;
-        report += `\u2022 Mode: ${mode === COMPRESSION_MODES.APPEND ? "Added below original with caption" : "Replaced in-place with caption"}`;
-        await app.alert(report);
       } catch (error) {
         console.error("Error compressing single image:", error);
         await app.alert("Failed to compress image: " + (error?.message || error));

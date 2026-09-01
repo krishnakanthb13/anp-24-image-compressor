@@ -11,7 +11,9 @@ import {
     getSmartDimensionLimits,
     getSmartDefaultTarget,
     withPreservedScroll,
-    fetchWithCorsFallback
+    fetchWithCorsFallback,
+    updateImageSurgically,
+    createCompressionReportNote
 } from '../lib/compressor.js';
 
 describe('compressor.js', () => {
@@ -230,6 +232,70 @@ describe('compressor.js', () => {
             expect(result.dataUrl).toBe('data:image/jpeg;base64,mockoutput');
             expect(state.imageCount).toBe(1);
             expect(result.savingsPercent).toBeGreaterThanOrEqual(0);
+        });
+    });
+
+    describe('updateImageSurgically', () => {
+        it('uses app.context.updateImage when available', async () => {
+            const app = { context: { updateImage: jest.fn().mockResolvedValue(true) } };
+            const img = { src: 'https://example.com/a.jpg' };
+            const ok = await updateImageSurgically(app, { uuid: '123' }, img, { src: 'https://example.com/b.jpg' });
+            expect(ok).toBe(true);
+            expect(app.context.updateImage).toHaveBeenCalledWith({ src: 'https://example.com/b.jpg' });
+        });
+
+        it('falls back to app.updateNoteImage', async () => {
+            const app = { updateNoteImage: jest.fn().mockResolvedValue(true) };
+            const img = { src: 'https://example.com/a.jpg' };
+            const ok = await updateImageSurgically(app, { uuid: '123' }, img, { src: 'https://example.com/b.jpg' });
+            expect(ok).toBe(true);
+            expect(app.updateNoteImage).toHaveBeenCalledWith({ uuid: '123' }, img, { src: 'https://example.com/b.jpg' });
+        });
+
+        it('falls back to note.updateImage via app.notes.find', async () => {
+            const noteMock = { updateImage: jest.fn().mockResolvedValue(true) };
+            const app = { notes: { find: jest.fn().mockResolvedValue(noteMock) } };
+            const img = { src: 'https://example.com/a.jpg' };
+            const ok = await updateImageSurgically(app, { uuid: '123' }, img, { src: 'https://example.com/b.jpg' });
+            expect(ok).toBe(true);
+            expect(noteMock.updateImage).toHaveBeenCalledWith(img, { src: 'https://example.com/b.jpg' });
+        });
+    });
+
+    describe('createCompressionReportNote', () => {
+        it('creates report note with date-time title, tag and summary markdown', async () => {
+            const app = {
+                createNote: jest.fn().mockResolvedValue('report-uuid-123'),
+                attachNoteMedia: jest.fn().mockResolvedValue('https://images.amplenote.com/opt1.jpg'),
+                insertNoteContent: jest.fn().mockResolvedValue(true)
+            };
+
+            const items = [
+                {
+                    dataUrl: 'data:image/jpeg;base64,mock',
+                    caption: 'Compressed: 250 KB',
+                    beforeStr: '1.2 MB',
+                    afterStr: '250 KB',
+                    percentSaved: 79,
+                    originalBytes: 1200 * 1024,
+                    finalBytes: 250 * 1024
+                }
+            ];
+
+            const uuid = await createCompressionReportNote(app, 'source-note-uuid', items);
+            expect(uuid).toBe('report-uuid-123');
+            expect(app.createNote).toHaveBeenCalledWith(
+                expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+                ['-reports/-image-compressor']
+            );
+            expect(app.attachNoteMedia).toHaveBeenCalledWith(
+                { uuid: 'report-uuid-123' },
+                'data:image/jpeg;base64,mock'
+            );
+            expect(app.insertNoteContent).toHaveBeenCalledWith(
+                { uuid: 'report-uuid-123' },
+                expect.stringContaining('![Image 1 • 250 KB (was 1.2 MB — 79% saved)](https://images.amplenote.com/opt1.jpg)')
+            );
         });
     });
 });

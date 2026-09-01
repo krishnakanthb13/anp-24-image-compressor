@@ -7,10 +7,15 @@ To deliver a lightweight, secure, and intuitive image compression solution for A
 
 ## Core Principles
 
-### 1. Non-Destructive Safety First ("Append" Mode)
-Replacing high-resolution original images irreversibly can be risky for users who might need original assets later.
-- **Decision**: Provide an **"Add compressed images below original"** option alongside in-place replacement.
-- **Benefit**: Users can experiment with compression and verify visual fidelity without losing original files.
+### 1. Non-Destructive Safety First ("-reports/-image-compressor" Mode)
+Modifying active notes in-place can be risky for users who want to preserve original high-resolution assets or avoid any risk of markdown re-parsing.
+- **Decision**: Provide an **"Export to new note in `-reports/-image-compressor`"** option alongside surgical in-place replacement.
+- **Benefit**: The active note stays 100% untouched. All optimized assets, benchmarks, and backlinks are organized under Amplenote's tag hierarchy.
+
+### 2. Surgical Precision for In-Place Updates
+Overwriting a note's markdown to update a single image can reset task checkboxes, detach blockquotes, and disrupt cursor position.
+- **Decision**: Use direct ProseMirror node updates (`updateNoteImage` / `note.updateImage`) that modify only the targeted image element.
+- **Benefit**: Zero note re-rendering, zero markdown parsing side-effects, and instant native caption binding.
 
 ### 2. Practical Standard Defaults (500 KB Limit)
 Published notes and everyday note viewing rarely require multi-megabyte images.

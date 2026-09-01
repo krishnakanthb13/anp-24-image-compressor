@@ -15,13 +15,13 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 
 - 📍 **Viewport & Scroll Position Preservation**:
   - Automatically captures the editor's scroll position and active image element before opening modal dialogs and seamlessly restores viewport alignment across multiple animation frames (`0ms`, `50ms`, `200ms`, `500ms`), preventing the editor from jumping or resetting cursor to the top of the note.
-- 🏷️ **Native Amplenote Image Caption Audit Notes**:
-  - In **Replace Mode**: Directly updates the image's native `caption` property via Amplenote's API (`app.context.updateImage` / `app.updateNoteImage`), ensuring the savings audit note (`Compressed: 355 KB (was 3.98 MB — 91% saved)`) renders attached directly beneath the image box.
-  - In **Append Mode**: Formats markdown with strict single-newline syntax (`![Compressed](url)\n> Caption`) so Amplenote attaches it as an image caption rather than an isolated blockquote.
+- 🛡️ **Dual Output Modes**:
+  - **Surgical In-Place Replacement (`replace`)**: Uses direct ProseMirror image node swaps (`updateNoteImage` / `note.updateImage`). Updates only the target image's `src` and native `caption` property without reading, modifying, or reloading the note's markdown. Zero formatting disruption, zero task checklist resets, and zero scroll jumping.
+  - **Save to Report Note in `-reports/-image-compressor` (`new_note`)**: A non-destructive export mode that leaves the active note **100% untouched**. Automatically creates a dedicated report note filed under the `-reports/-image-compressor` tag, attaches all compressed images, adds before/after size benchmarks, and generates clickable backlinks to the source note.
 - 🧙‍♂️ **Guided 2-Step Workflow (`noteOption` -> "Optimize note")**:
   - **Step 1 — Clean Image Selector**: Presents a clean, focused checklist showing each image's size, dimensions ($W \times H$), and `[Needs Optimization]` vs `[Optimized]` status badges, without overwhelming the user with settings.
   - **Step 2 — Flexible Strategy Choice**:
-    - **`⚡ Quick Batch`**: Apply unified target size, format, and dimension limits across all selected images simultaneously.
+    - **`⚡ Quick Batch`**: Apply unified target size, format, dimension limits, and output mode across all selected images in a single prompt.
     - **`🎯 Step-by-Step Individual`**: Inspect and configure each selected image individually with its own custom target size, dimension cap, format, and placement mode.
     - **Fast-Track**: If only 1 image is selected, fast-tracks directly to its individual configuration.
 - 🧠 **Context-Aware Intelligence**:
@@ -35,32 +35,24 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 - 🔄 **PNG/WebP to JPEG Optimization**: Optional automatic format conversion to reduce photographic screenshots and PNGs by 70–90%.
 - 📐 **Max Width Dimension Limiting**: Constrain massive 4K/iPhone camera photos to standard display sizes (`1920 px Full HD`, `1280 px HD`, `800 px Inline`) preserving aspect ratio.
 - 🎬 **GIF Animation Protection**: Automatically detects animated `.gif` files with an option to skip them so animations are preserved.
-- 🛡️ **Dual Placement Modes**:
-  - **In-place Replacement (`replace`)**: Updates note images directly with their optimized versions and updates the native caption.
-  - **Append Below (`append`)**: Safely preserves the original full-resolution image and inserts the compressed version with its caption quote immediately below it.
 - 📈 **Detailed Savings Report**: Displays comprehensive before/after statistics and percentage space saved upon completion.
 - 🔒 **Zero Third-Party Runtime Dependencies**: Runs purely client-side using standard Web Platform APIs (`Canvas 2D`, `createImageBitmap`, `fetch`, `Blob`).
 
 ---
 
-## Amplenote Caption & Image Insertion Mechanics
+## Output Modes Breakdown
 
-### 1. In-Place Replacement (`replace`)
+### 1. In-Place Surgical Replacement (`replace`)
 - Targets only the specific image object in Amplenote's internal document tree using `app.context.updateImage({ src, caption })` or `app.updateNoteImage(noteHandle, image, { src, caption })`.
 - Does **not** replace the full note markdown.
-- Directly updates the image `src` URL and binds the compression audit caption to Amplenote's native caption container.
+- Directly updates the image `src` URL and binds the compression audit caption (`Compressed: 355 KB (was 3.98 MB — 91% saved)`) to Amplenote's native caption container.
 
-### 2. Append Below (`append`)
-- Reads the note markdown via `app.getNoteContent(noteHandle)`.
-- Matches the original image tag (and its existing caption line, if present) using regex.
-- Inserts the new image block with a **single newline** before the caption quote:
-  ```markdown
-  ![Compressed](https://images.amplenote.com/optimized.jpg)
-  > 🗜️ Compressed: 355 KB (was 3.98 MB — 91% saved)
-  ```
-  > [!NOTE]
-  > Amplenote requires `> Caption` to follow `![image](url)` with a single `\n` (no empty line). An empty line (`\n\n`) would turn the caption into a detached blockquote instead of an image caption.
-- Writes back the updated content via `app.replaceNoteContent(noteHandle, updatedContent)`.
+### 2. Save to New Report Note (`new_note`)
+- Creates a dedicated note tagged with `["-reports/-image-compressor"]` titled `YYYY-MM-DD HH:mm:ss`.
+- Attaches the newly compressed images to the report note with the audit metrics attached directly as the image caption: `![Image 1 • 250 KB (was 1.2 MB — 79% saved)](hostedURL)`.
+- Binds native ProseMirror captions to the image cards in the report note.
+- Inserts a structured report with a summary statistics table and a backlink to the source note.
+- Leaves the active source note **100% unmodified and untouched**.
 
 ---
 

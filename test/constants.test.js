@@ -3,6 +3,7 @@ import {
     DEFAULT_MAX_SIZE_KB,
     COMPRESSION_MODES,
     COMPRESSION_CONFIG,
+    REPORT_TAG,
     DEFAULT_CONSTANTS
 } from '../lib/constants.js';
 
@@ -16,9 +17,10 @@ describe('constants.js', () => {
             expect(DEFAULT_MAX_SIZE_KB).toBe(500);
         });
 
-        it('defines replace and append compression modes', () => {
+        it('defines replace and new_note compression modes and report tag', () => {
             expect(COMPRESSION_MODES.REPLACE).toBe('replace');
-            expect(COMPRESSION_MODES.APPEND).toBe('append');
+            expect(COMPRESSION_MODES.NEW_NOTE).toBe('new_note');
+            expect(REPORT_TAG).toBe('-reports/-image-compressor');
         });
 
         it('provides valid compression step configuration', () => {

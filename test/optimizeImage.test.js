@@ -66,19 +66,23 @@ describe('optimizeImage.js', () => {
                 src: 'https://example.com/compressed.jpg',
                 caption: expect.stringContaining('Compressed:')
             });
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Image optimized successfully!'));
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Image optimized surgically in-place!'));
             expect(pluginContext.constants.imageCount).toBe(1);
         });
 
-        it('appends compressed image below original when append mode is selected', async () => {
-            appMock.prompt.mockResolvedValue(['250kb', '250 KB', '0', 'image/jpeg', COMPRESSION_MODES.APPEND, true]);
+        it('exports compressed image to new report note when new_note mode is selected', async () => {
+            appMock.createNote = jest.fn().mockResolvedValue('new-report-uuid');
+            appMock.insertNoteContent = jest.fn().mockResolvedValue(true);
+            appMock.prompt.mockResolvedValue(['250kb', '250 KB', '0', 'image/jpeg', COMPRESSION_MODES.NEW_NOTE, true]);
 
             await optimizeImage.run(appMock, { src: 'https://example.com/shot.png', caption: 'Existing' });
 
-            expect(appMock.replaceNoteContent).toHaveBeenCalledWith(
-                { uuid: 'note-123' },
-                expect.stringContaining('https://example.com/compressed.jpg')
+            expect(appMock.createNote).toHaveBeenCalledWith(
+                expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+                ['-reports/-image-compressor']
             );
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('exported to new note'));
+            expect(appMock.replaceNoteContent).not.toHaveBeenCalled();
         });
     });
 

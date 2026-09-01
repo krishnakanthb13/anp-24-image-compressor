@@ -69,19 +69,22 @@ describe('optimizeNote.js', () => {
         });
 
         it('executes Step-by-Step Individual workflow allowing custom settings per image', async () => {
+            appMock.createNote = jest.fn().mockResolvedValue('test-report-uuid');
+            appMock.insertNoteContent = jest.fn().mockResolvedValue(true);
+
             // Step 1: Select both images + strategy 'individual'
-            // Step 2: Prompt for Image 1, Prompt for Image 2
+            // Step 2: Prompt for Image 1 (Replace), Prompt for Image 2 (New Note)
             appMock.prompt
                 .mockResolvedValueOnce([true, true, 'individual'])
                 .mockResolvedValueOnce(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.REPLACE, true])
-                .mockResolvedValueOnce(['250kb', '250 KB', '0', 'image/jpeg', COMPRESSION_MODES.APPEND, true]);
+                .mockResolvedValueOnce(['250kb', '250 KB', '0', 'image/jpeg', COMPRESSION_MODES.NEW_NOTE, true]);
 
             await optimizeNote.run(appMock, 'test-note-uuid');
 
             expect(appMock.prompt).toHaveBeenCalledTimes(3);
-            expect(appMock.replaceNoteContent).toHaveBeenCalledWith(
-                { uuid: 'test-note-uuid' },
-                expect.stringContaining('https://example.com/optimized.jpg')
+            expect(appMock.createNote).toHaveBeenCalledWith(
+                expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+                ['-reports/-image-compressor']
             );
             expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Note Optimization Completed!'));
         });

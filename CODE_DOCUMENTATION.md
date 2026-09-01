@@ -30,12 +30,11 @@ flowchart TD
     F --> N[Direct Single Image Inspection Dialog via withPreservedScroll]
     N --> M
     
-    J --> O[attachNoteMedia to Note]
-    M --> O
+    J --> P{Output Mode}
+    M --> P
     
-    O --> P{Output Mode}
-    P -->|replace| Q[updateNoteImage / context.updateImage with native caption]
-    P -->|append| R[insertImageBelow with > Caption quote + replaceNoteContent]
+    P -->|replace| Q[updateImageSurgically: Direct ProseMirror node swap with native caption]
+    P -->|new_note| R[createCompressionReportNote: Export to new note in -reports/-image-compressor]
     
     Q --> S[Restore Viewport & Show Savings Report]
     R --> S
@@ -58,12 +57,30 @@ flowchart TD
 - `CORS_PROXY_URL`: Pinned HTTPS proxy for routing external media URLs.
 - `DEFAULT_MAX_SIZE_KB`: Configured to `500` (derived from `ds.md` specification).
 - `LIGHTWEIGHT_THRESHOLD_KB`: `150` KB threshold below which images are classified as already lightweight.
-- `COMPRESSION_MODES`: `REPLACE = "replace"`, `APPEND = "append"`.
+- `COMPRESSION_MODES`: `REPLACE = "replace"`, `NEW_NOTE = "new_note"`.
+- `REPORT_TAG`: `"-reports/-image-compressor"` applied to all generated report notes.
 - `COMPRESSION_CONFIG`: Stepping rules (`initialQuality = 0.9`, `minQuality = 0.1`, `qualityStep = 0.1`, `scaleStep = 0.8`, `minDimension = 100`).
 
 ---
 
 ### 3. Compression Engine (`lib/compressor.js`)
+
+#### `updateImageSurgically(app, noteHandle, image, updates)`
+- Performs a surgical in-place update on a specific image block without reading, modifying, or reloading the note's markdown.
+- Cascades through all available Amplenote update mechanisms in order of directness:
+  1. `app.context.updateImage(updates)` (for `imageOption` context).
+  2. `app.updateNoteImage(noteHandle, image, updates)` (for note-level API).
+  3. `(await app.notes.find(uuid)).updateImage(image, updates)` (for Note Interface fallback).
+- Guarantees 0% alteration of surrounding text, tasks, markdown, and cursor state.
+
+#### `createCompressionReportNote(app, originalNoteUUID, items, tag)`
+- Creates a dedicated, non-destructive report note filed under `"-reports/-image-compressor"`.
+- Inserts an automated Markdown report with:
+  - Title: `YYYY-MM-DD HH:mm:ss`
+  - Backlink to the source note: `[Open Original Note](https://www.amplenote.com/notes/${originalNoteUUID})`
+  - High-res compressed images with audit metrics embedded directly as native image captions: `![Image 1 • 250 KB (was 1.2 MB — 79% saved)](fileURL)`.
+  - Summary table calculating total bandwidth and storage reduction.
+- Leaves the source active note **100% untouched**.
 
 #### `blobToDataUrl(blob)`
 - Asynchronously converts an image `Blob` into a base64-encoded Data URL (`data:...;base64,...`) using `FileReader` with fallback to `arrayBuffer` and `btoa`.
@@ -79,14 +96,9 @@ flowchart TD
 
 #### `withPreservedScroll(imageSrc, promptAction)`
 - Captures active editor container scroll offset (`scrollTop`) and anchors to the targeted image.
+- Safely inspects parent/top-level documents (`window.parent.document`) to navigate outside the plugin iframe sandbox.
 - Uses safe CSS selector escaping (`CSS.escape(filename)`) to prevent filenames containing parentheses, brackets, or quotes from throwing selector errors.
-- Restores viewport alignment and scrolls the targeted image into center view across multiple animation frames (`0ms`, `50ms`, `200ms`, `500ms`) when modal prompts close, preventing the editor from jumping or resetting to the top of the note.
-
-#### `insertImageBelow(content, originalSrc, newSrc, auditInfo)`
-- Safely matches the target markdown image tag along with any existing caption line (`(!\[[^\]]*\]\(${escapedSrc}\)(?:\r?\n>[^\r\n]*)?)`).
-- Employs non-global regex matching to avoid stateful `lastIndex` consumption between `.test()` and `.replace()`, ensuring single-occurrence images are always replaced reliably.
-- Inserts the new image block with a **single newline** before the caption quote (`\n\n![Compressed](newSrc)\n> auditInfo`).
-- Strict single newline adherence guarantees Amplenote treats the quote as an attached image caption rather than an isolated blockquote.
+- Restores viewport alignment and scrolls the targeted image into center view across multiple animation frames (`0ms`, `50ms`, `150ms`, `350ms`, `700ms`) when modal prompts close.
 
 #### `getSmartSizePresets(imageSizeBytes)`
 - Generates context-appropriate size reduction profiles based on image size:
@@ -134,13 +146,12 @@ flowchart TD
   - Renders a clean checklist of note images badged with `[Needs Optimization]` (pre-checked) vs `[Optimized]` (unchecked).
   - Offers a workflow strategy selector: `⚡ Quick Batch` vs `🎯 Step-by-Step Individual`.
 - **Step 2A (Quick Batch Mode)**:
-  - Opens a single global settings dialog to configure size presets, dimension caps, format, and mode for all chosen images at once.
+  - Opens a single global settings dialog to configure size presets, dimension caps, format, and output mode for all chosen images at once.
 - **Step 2B (Step-by-Step Individual Mode & Fast-Track)**:
   - Loops sequentially through selected images (or fast-tracks if only 1 image selected), opening a tailored configuration dialog for each image with its exact size and format.
 - **Completion**:
-  - Uploads media via `app.attachNoteMedia`.
-  - In `replace` mode: calls `app.updateNoteImage(noteHandle, img, { src, caption })` updating only the specific image objects with native captions.
-  - In `append` mode: calls `insertImageBelow` with `\n> Caption` and replaces note content via `app.replaceNoteContent`.
+  - In `replace` mode: calls `updateImageSurgically` for each image, updating only image objects with native captions without touching note markdown.
+  - In `new_note` mode: calls `createCompressionReportNote`, attaches all media to the new report note, and leaves the active source note 100% pristine.
   - Delivers a comprehensive savings report with total note size before, after, skipped/failed metrics, and space saved.
 
 ---
@@ -154,8 +165,9 @@ flowchart TD
      - Standard ($\le 500$ KB): `ℹ️ Image is Within Standard Limits (350 KB)`.
      - Large ($> 500$ KB): `⚠️ Large Image Detected (3.20 MB)`.
   4. Preserves note scroll position and anchors the viewport to the target image throughout the prompt and update cycle.
-  5. Allows configuring smart presets, custom size (KB/MB/%), dimension caps, format conversions, and placement modes.
-  6. Executes compression, updates native caption in-place (or appends below with `\n> Caption`), and delivers an instant savings summary.
+  5. Allows configuring smart presets, custom size (KB/MB/%), dimension caps, format conversions, and output modes (`replace` vs `new_note`).
+  6. In `replace` mode: updates the image node surgically in-place via `updateImageSurgically`.
+  7. In `new_note` mode: exports the image to a new report note under `-reports/-image-compressor` with backlinks.
 
 ---
 

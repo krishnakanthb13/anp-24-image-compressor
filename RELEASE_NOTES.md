@@ -2,8 +2,11 @@
 
 ## v0.0.7 (2026-09-01)
 
+### 🚀 New Features
+- **Surgical In-Place Replacement**: Replaced full-document markdown rewrites with direct ProseMirror image node updates via `updateImageSurgically` (`app.context.updateImage`, `app.updateNoteImage`, `note.updateImage`). Modifies only the targeted image node while preserving 100% of the surrounding note structure, text, task checklists, and cursor focus.
+- **Non-Destructive Report Notes in `-reports/-image-compressor`**: Added an automated export mode (`new_note`) that leaves the active note 100% untouched and creates a dedicated, categorized report note filed under `["-reports/-image-compressor"]` complete with before/after benchmarks and source note backlinks.
+
 ### 🐛 Bug Fixes & Hardening
-- **Fixed Caption Detachment in Append Mode**: Replaced email-style blockquotes (`\n> Caption`) with native markdown image captions `![Caption](url)` in `insertImageBelow`, followed by direct ProseMirror caption binding via `app.updateNoteImage`. Eliminates detached blockquotes.
 - **Fixed Quick Batch Strategy Selection**: Improved `select` strategy parsing in `optimizeNote` to recognize both string and object prompt responses, ensuring Quick Batch displays a single unified prompt rather than cycling through each image individually.
 - **Enhanced Viewport / Scroll Position Anchoring**: Updated `withPreservedScroll` to safely traverse parent and top-level window documents (`window.parent.document`), centering target images via `scrollIntoView({ block: "center", behavior: "smooth" })` across multi-frame render cycles.
 - **Fixed `preserveGif` Checkbox Parsing**: Updated boolean evaluation in `optimizeImage` and `optimizeNote` to strictly check truthy values (`true`, `"true"`, `1`), preventing unchecked options from evaluating to `true`.
@@ -14,7 +17,7 @@
 - **Safe CSS Selector Escaping**: Applied `CSS.escape()` in `withPreservedScroll` to safely handle filenames containing parentheses, brackets, or quotes.
 
 ### 🧪 Tests
-- **Expanded Test Suite**: 47 automated tests passing across all 5 test suites.
+- **Expanded Test Suite**: 51 automated tests passing across all 5 test suites.
 
 ---
 
