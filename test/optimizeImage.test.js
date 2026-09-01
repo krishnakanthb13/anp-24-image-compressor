@@ -77,7 +77,7 @@ describe('optimizeImage.js', () => {
 
             expect(appMock.replaceNoteContent).toHaveBeenCalledWith(
                 { uuid: 'note-123' },
-                expect.stringContaining('![Compressed](https://example.com/compressed.jpg)')
+                expect.stringContaining('https://example.com/compressed.jpg')
             );
         });
     });

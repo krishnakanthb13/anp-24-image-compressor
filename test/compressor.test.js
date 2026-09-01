@@ -171,17 +171,22 @@ describe('compressor.js', () => {
     });
 
     describe('insertImageBelow', () => {
-        it('inserts compressed image below matching markdown image with caption quote', () => {
+        it('inserts compressed image below matching markdown image with attached caption', () => {
             const md = '# Note\n\n![My Dog|500](https://example.com/dog.png)\n\nText';
             const updated = insertImageBelow(md, 'https://example.com/dog.png', 'https://example.com/dog-opt.jpg', 'Compressed: 300 KB');
 
-            expect(updated).toContain('![My Dog|500](https://example.com/dog.png)\n\n![Compressed](https://example.com/dog-opt.jpg)\n> Compressed: 300 KB');
+            expect(updated).toContain('![My Dog|500](https://example.com/dog.png)\n\n![Compressed: 300 KB](https://example.com/dog-opt.jpg)');
+        });
+
+        it('reliably replaces image when there is exactly one match in content (BUG-1 test)', () => {
+            const singleMd = '![Screenshot](https://example.com/shot.png)';
+            const res = insertImageBelow(singleMd, 'https://example.com/shot.png', 'https://example.com/shot-opt.jpg', 'Compressed');
+            expect(res).toContain('![Screenshot](https://example.com/shot.png)\n\n![Compressed](https://example.com/shot-opt.jpg)');
         });
     });
 
     describe('compressImage', () => {
         beforeEach(() => {
-            global.URL.createObjectURL = jest.fn().mockReturnValue('blob:http://localhost/cached-blob');
             global.createImageBitmap = jest.fn().mockResolvedValue({ width: 3840, height: 2160 });
 
             jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
@@ -196,12 +201,12 @@ describe('compressor.js', () => {
         });
 
         it('skips compression if image is already within target bytes and no dimension limit', async () => {
-            const smallBlob = new Blob(['small']);
+            const smallBlob = new Blob(['small'], { type: 'image/jpeg' });
             Object.defineProperty(smallBlob, 'size', { value: 200 * 1024 });
 
             const result = await compressImage(smallBlob, 500 * 1024, { maxDimension: 0 });
             expect(result.skipped).toBe(true);
-            expect(result.dataUrl).toBe('blob:http://localhost/cached-blob');
+            expect(result.dataUrl).toMatch(/^data:image\/jpeg;base64,/);
         });
 
         it('preserves GIF animation without flattening if preserveGif is enabled', async () => {
@@ -210,6 +215,7 @@ describe('compressor.js', () => {
 
             const result = await compressImage(gifBlob, 500 * 1024, { preserveGif: true });
             expect(result.skipped).toBe(true);
+            expect(result.dataUrl).toMatch(/^data:image\/gif;base64,/);
             expect(result.reason).toBe('Preserved GIF animation');
         });
 
@@ -227,3 +233,4 @@ describe('compressor.js', () => {
         });
     });
 });
+

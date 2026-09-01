@@ -1,5 +1,23 @@
 # Release Notes: Amplenote Image Compressor
 
+## v0.0.7 (2026-09-01)
+
+### 🐛 Bug Fixes & Hardening
+- **Fixed Caption Detachment in Append Mode**: Replaced email-style blockquotes (`\n> Caption`) with native markdown image captions `![Caption](url)` in `insertImageBelow`, followed by direct ProseMirror caption binding via `app.updateNoteImage`. Eliminates detached blockquotes.
+- **Fixed Quick Batch Strategy Selection**: Improved `select` strategy parsing in `optimizeNote` to recognize both string and object prompt responses, ensuring Quick Batch displays a single unified prompt rather than cycling through each image individually.
+- **Enhanced Viewport / Scroll Position Anchoring**: Updated `withPreservedScroll` to safely traverse parent and top-level window documents (`window.parent.document`), centering target images via `scrollIntoView({ block: "center", behavior: "smooth" })` across multi-frame render cycles.
+- **Fixed `preserveGif` Checkbox Parsing**: Updated boolean evaluation in `optimizeImage` and `optimizeNote` to strictly check truthy values (`true`, `"true"`, `1`), preventing unchecked options from evaluating to `true`.
+- **Fixed Image Counter State Tracking**: Added fallback mutation on `DEFAULT_CONSTANTS.imageCount` so lifetime compression counts track properly regardless of action execution context and `this` binding.
+- **Base64 Data URL Return (`blobToDataUrl`)**: Converted skipped/GIF-preservation paths to return valid base64 data URLs via `FileReader` / `arrayBuffer`, guaranteeing compatibility with `app.attachNoteMedia` and preventing object URL leaks.
+- **Format `"auto"` Transparency Preservation**: Extended `compressImage` to inspect `blob.type` and preserve PNG / WebP formats without forced JPEG conversion when `"auto"` is selected.
+- **CORS Fetch Timeout & Status Error Capture**: Added 15-second `AbortController` timeout per attempt and explicit `HTTP ${status}` error logging in `fetchWithCorsFallback`.
+- **Safe CSS Selector Escaping**: Applied `CSS.escape()` in `withPreservedScroll` to safely handle filenames containing parentheses, brackets, or quotes.
+
+### 🧪 Tests
+- **Expanded Test Suite**: 47 automated tests passing across all 5 test suites.
+
+---
+
 ## v0.0.6 (2026-09-01)
 
 ### 🚀 New Features

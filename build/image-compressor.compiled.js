@@ -19,6 +19,31 @@ var DEFAULT_CONSTANTS = {
 };
 
 // anp-24-image-compressor/lib/compressor.js
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    if (typeof FileReader !== "undefined") {
+      const reader = new FileReader();
+      reader.onload = () => resolve(
+        /** @type {string} */
+        reader.result
+      );
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    } else if (blob && typeof blob.arrayBuffer === "function") {
+      blob.arrayBuffer().then((buffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = typeof btoa === "function" ? btoa(binary) : typeof Buffer !== "undefined" ? Buffer.from(binary, "binary").toString("base64") : "";
+        resolve(`data:${blob.type || "image/jpeg"};base64,${base64}`);
+      }).catch(reject);
+    } else {
+      resolve("");
+    }
+  });
+}
 function formatBytes(bytes) {
   if (isNaN(bytes) || bytes <= 0) return "0 KB";
   const kb = bytes / 1024;
@@ -144,9 +169,19 @@ async function fetchWithCorsFallback(rawUrl, primaryProxy = CORS_PROXY_URL) {
   let lastError = null;
   for (const url of urlsToTry) {
     try {
-      const response = await fetch(url);
+      let signal;
+      let timeoutId;
+      if (typeof AbortController !== "undefined") {
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 15e3);
+        signal = controller.signal;
+      }
+      const response = await fetch(url, signal ? { signal } : void 0);
+      if (timeoutId) clearTimeout(timeoutId);
       if (response.ok) {
         return response;
+      } else {
+        lastError = new Error(`HTTP ${response.status} from ${url}`);
       }
     } catch (err) {
       lastError = err;
@@ -157,20 +192,41 @@ async function fetchWithCorsFallback(rawUrl, primaryProxy = CORS_PROXY_URL) {
 async function withPreservedScroll(imageSrc, action) {
   let savedScrollTop = 0;
   let container = null;
-  if (typeof document !== "undefined") {
-    container = document.querySelector(".note-content-container, .note-editor-wrapper, .CodeMirror-scroll, .ProseMirror, .note-scroll-container, main") || document.documentElement || document.body;
+  const getDoc = () => {
+    try {
+      if (typeof window !== "undefined" && window.parent && window.parent.document) {
+        return window.parent.document;
+      }
+    } catch {
+    }
+    try {
+      if (typeof window !== "undefined" && window.top && window.top.document) {
+        return window.top.document;
+      }
+    } catch {
+    }
+    if (typeof document !== "undefined") {
+      return document;
+    }
+    return null;
+  };
+  const doc = getDoc();
+  if (doc) {
+    container = doc.querySelector(".note-content-container, .note-editor-wrapper, .CodeMirror-scroll, .ProseMirror, .note-scroll-container, .infinite-scroll-component, main") || doc.documentElement || doc.body;
     if (container) {
-      savedScrollTop = container.scrollTop || window.scrollY || 0;
+      savedScrollTop = container.scrollTop || (typeof window !== "undefined" ? window.scrollY : 0) || 0;
     }
   }
   const restore = () => {
-    if (typeof document === "undefined" || typeof window === "undefined") return;
+    const currentDoc = getDoc();
+    if (!currentDoc) return;
     try {
       if (imageSrc) {
         const filename = imageSrc.split("?")[0].split("/").pop();
-        const imgEl = filename ? document.querySelector(`img[src*="${filename}"]`) : null;
+        const safeFilename = filename ? typeof CSS !== "undefined" && CSS.escape ? CSS.escape(filename) : filename.replace(/["\\]/g, "\\$&") : null;
+        const imgEl = safeFilename ? currentDoc.querySelector(`img[src*="${safeFilename}"]`) : null;
         if (imgEl && typeof imgEl.scrollIntoView === "function") {
-          imgEl.scrollIntoView({ block: "center", behavior: "auto" });
+          imgEl.scrollIntoView({ block: "center", behavior: "smooth" });
           return;
         }
       }
@@ -187,8 +243,9 @@ async function withPreservedScroll(imageSrc, action) {
     if (typeof window !== "undefined") {
       restore();
       setTimeout(restore, 50);
-      setTimeout(restore, 200);
-      setTimeout(restore, 500);
+      setTimeout(restore, 150);
+      setTimeout(restore, 350);
+      setTimeout(restore, 700);
     }
   }
 }
@@ -215,15 +272,14 @@ async function fetchImageMetadata(imageUrl, proxyUrl = CORS_PROXY_URL) {
     isGif
   };
 }
-function insertImageBelow(content, originalSrc, newSrc, auditInfo = "Compressed") {
+function insertImageBelow(content, originalSrc, newSrc, auditCaption = "Compressed") {
   if (!content || !originalSrc || !newSrc) return content || "";
   const escapedSrc = originalSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(!\\[[^\\]]*\\]\\(${escapedSrc}\\)(?:\\r?\\n>[^\\r\\n]*)?)`, "g");
-  const captionBlock = auditInfo ? `
-> ${auditInfo}` : "";
+  const regex = new RegExp(`(!\\[[^\\]]*\\]\\(${escapedSrc}\\))`);
+  const cleanCaption = auditCaption ? String(auditCaption).replace(/[\[\]]/g, "") : "Compressed";
   const newImageBlock = `
 
-![Compressed](${newSrc})${captionBlock}`;
+![${cleanCaption}](${newSrc})`;
   if (regex.test(content)) {
     return content.replace(regex, `$1${newImageBlock}`);
   }
@@ -243,19 +299,10 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
   const originalBytes = blob.size;
   const maxDimension = Number(options.maxDimension) || 0;
   const isGif = blob.type && blob.type.includes("gif") || typeof imageSource === "string" && imageSource.toLowerCase().includes(".gif");
-  const getSafeObjectUrl = (b) => {
-    if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
-      try {
-        return URL.createObjectURL(b);
-      } catch {
-        return typeof imageSource === "string" ? imageSource : "";
-      }
-    }
-    return typeof imageSource === "string" ? imageSource : "";
-  };
   if (isGif && options.preserveGif) {
+    const dataUrl = await blobToDataUrl(blob);
     return {
-      dataUrl: getSafeObjectUrl(blob),
+      dataUrl,
       skipped: true,
       originalBytes,
       finalBytes: originalBytes,
@@ -271,8 +318,9 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
     initialWidth = Math.round(initialWidth * ratio);
     initialHeight = Math.round(initialHeight * ratio);
   } else if (blob.size <= targetSizeBytes && maxDimension === 0) {
+    const dataUrl = await blobToDataUrl(blob);
     return {
-      dataUrl: getSafeObjectUrl(blob),
+      dataUrl,
       skipped: true,
       originalBytes,
       finalBytes: originalBytes,
@@ -284,7 +332,14 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
   let finalDataUrl = null;
   let finalBytes = originalBytes;
   let scale = 1;
-  const outputMime = options.format === "image/png" ? "image/png" : "image/jpeg";
+  let outputMime = "image/jpeg";
+  if (options.format === "image/png") {
+    outputMime = "image/png";
+  } else if (options.format === "auto") {
+    if (blob.type === "image/png" || blob.type === "image/webp") {
+      outputMime = blob.type;
+    }
+  }
   while (scale >= 0.2) {
     canvas.width = Math.max(Math.round(initialWidth * scale), COMPRESSION_CONFIG.minDimension);
     canvas.height = Math.max(Math.round(initialHeight * scale), COMPRESSION_CONFIG.minDimension);
@@ -292,7 +347,8 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     if (outputMime === "image/png") {
       const dataUrl = canvas.toDataURL("image/png");
-      const estimatedBytes = dataUrl.length * 0.75;
+      const base64Start = dataUrl.indexOf(",") + 1;
+      const estimatedBytes = (dataUrl.length - base64Start) * 0.75;
       if (estimatedBytes <= targetSizeBytes || scale <= 0.25) {
         finalDataUrl = dataUrl;
         finalBytes = Math.round(estimatedBytes);
@@ -302,7 +358,8 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
       let quality = COMPRESSION_CONFIG.initialQuality;
       while (quality >= COMPRESSION_CONFIG.minQuality) {
         const dataUrl = canvas.toDataURL("image/jpeg", quality);
-        const estimatedBytes = dataUrl.length * 0.75;
+        const base64Start = dataUrl.indexOf(",") + 1;
+        const estimatedBytes = (dataUrl.length - base64Start) * 0.75;
         if (estimatedBytes <= targetSizeBytes) {
           finalDataUrl = dataUrl;
           finalBytes = Math.round(estimatedBytes);
@@ -321,7 +378,8 @@ async function compressImage(imageSource, targetSizeBytes, options = {}, state =
   }
   if (!finalDataUrl) {
     finalDataUrl = canvas.toDataURL("image/jpeg", COMPRESSION_CONFIG.minQuality);
-    finalBytes = Math.round(finalDataUrl.length * 0.75);
+    const base64Start = finalDataUrl.indexOf(",") + 1;
+    finalBytes = Math.round((finalDataUrl.length - base64Start) * 0.75);
   }
   if (state && typeof state.imageCount === "number") {
     state.imageCount += 1;
@@ -414,7 +472,9 @@ var optimizeNote = {
           return;
         }
         const step1Answers = Array.isArray(step1Result) ? step1Result : [step1Result];
-        const strategy = imageMetas.length > 1 ? step1Answers[step1Answers.length - 1] || "batch" : "individual";
+        const rawStrategy = imageMetas.length > 1 ? step1Answers[imageMetas.length] ?? step1Answers[step1Answers.length - 1] : "batch";
+        const strategyStr = typeof rawStrategy === "object" && rawStrategy !== null ? String(rawStrategy.value || rawStrategy.label || "") : String(rawStrategy || "");
+        const isBatch = !strategyStr.toLowerCase().includes("individual");
         const selectedImages = imageMetas.filter((img, idx) => {
           return Boolean(step1Answers[idx]);
         });
@@ -428,7 +488,7 @@ var optimizeNote = {
         let skippedCount = 0;
         let failedCount = 0;
         let appendReplacements = [];
-        if (strategy === "batch" && selectedImages.length > 1) {
+        if (isBatch) {
           const maxImgBytes = Math.max(...selectedImages.map((img) => img.size || 0));
           const smartPresets = getSmartSizePresets(maxImgBytes);
           const smartDefault = getSmartDefaultTarget(maxImgBytes);
@@ -480,7 +540,7 @@ var optimizeNote = {
               value: true
             }
           ];
-          const batchResult = await app.prompt(`\u26A1 Quick Batch Settings (${selectedImages.length} images selected):`, {
+          const batchResult = await app.prompt(`\u26A1 Quick Batch Settings (${selectedImages.length} image${selectedImages.length === 1 ? "" : "s"} selected):`, {
             inputs: batchInputs
           });
           if (batchResult === null || batchResult === void 0) {
@@ -492,7 +552,7 @@ var optimizeNote = {
           const maxDim = Number(batchAnswers[2]) || 0;
           const formatChoice = batchAnswers[3] || "image/jpeg";
           const mode = batchAnswers[4] || COMPRESSION_MODES.REPLACE;
-          const preserveGif = Boolean(batchAnswers[5] !== false);
+          const preserveGif = Boolean(batchAnswers[5] === true || batchAnswers[5] === "true" || batchAnswers[5] === 1);
           for (const img of selectedImages) {
             try {
               const originalBytes = img.size || 0;
@@ -605,7 +665,7 @@ var optimizeNote = {
             const maxDim = Number(singleAnswers[2]) || 0;
             const formatChoice = singleAnswers[3] || "image/jpeg";
             const mode = singleAnswers[4] || COMPRESSION_MODES.REPLACE;
-            const preserveGif = Boolean(singleAnswers[5] !== false);
+            const preserveGif = Boolean(singleAnswers[5] === true || singleAnswers[5] === "true" || singleAnswers[5] === 1);
             try {
               let targetBytes;
               if (presetVal === "custom") {
@@ -655,9 +715,24 @@ var optimizeNote = {
             noteContent = insertImageBelow(noteContent, item.originalSrc, item.newSrc, item.auditCaption);
           }
           await app.replaceNoteContent(noteHandle, noteContent);
+          try {
+            const freshImages = await app.getNoteImages(noteHandle);
+            if (freshImages && app.updateNoteImage) {
+              for (const item of appendReplacements) {
+                const newImg = freshImages.find((i) => i.src === item.newSrc);
+                if (newImg) {
+                  await app.updateNoteImage(noteHandle, newImg, { caption: item.auditCaption });
+                }
+              }
+            }
+          } catch (syncErr) {
+            console.warn("Could not bind native captions to appended images:", syncErr);
+          }
         }
         if (this?.constants && typeof this.constants.imageCount === "number") {
           this.constants.imageCount += processedCount;
+        } else if (typeof DEFAULT_CONSTANTS?.imageCount === "number") {
+          DEFAULT_CONSTANTS.imageCount += processedCount;
         }
         const spaceSaved = totalOriginalBytes > totalFinalBytes ? totalOriginalBytes - totalFinalBytes : 0;
         const percentSaved = totalOriginalBytes > 0 ? Math.round(spaceSaved / totalOriginalBytes * 100) : 0;
@@ -790,7 +865,7 @@ var optimizeImage = {
         const maxDimension = Number(resultArray[2]) || 0;
         const formatChoice = resultArray[3] || "image/jpeg";
         const mode = resultArray[4] || COMPRESSION_MODES.REPLACE;
-        const preserveGif = Boolean(resultArray[5] !== false);
+        const preserveGif = Boolean(resultArray[5] === true || resultArray[5] === "true" || resultArray[5] === 1);
         const originalBytes = meta?.size || 0;
         let targetSizeBytes;
         if (presetVal === "custom") {
@@ -829,6 +904,17 @@ var optimizeImage = {
           const noteContent = await app.getNoteContent(noteHandle);
           const updatedContent = insertImageBelow(noteContent, image.src, fileURL, auditCaption);
           await app.replaceNoteContent(noteHandle, updatedContent);
+          try {
+            if (typeof app.getNoteImages === "function") {
+              const freshImages = await app.getNoteImages(noteHandle);
+              const newImg = freshImages?.find((i) => i.src === fileURL);
+              if (newImg && typeof app.updateNoteImage === "function") {
+                await app.updateNoteImage(noteHandle, newImg, { caption: auditCaption });
+              }
+            }
+          } catch (syncErr) {
+            console.warn("Could not bind native caption to appended image:", syncErr);
+          }
         } else {
           if (app.context?.updateImage) {
             await app.context.updateImage({ src: fileURL, caption: auditCaption });
@@ -838,6 +924,8 @@ var optimizeImage = {
         }
         if (this?.constants && typeof this.constants.imageCount === "number") {
           this.constants.imageCount += 1;
+        } else if (typeof DEFAULT_CONSTANTS?.imageCount === "number") {
+          DEFAULT_CONSTANTS.imageCount += 1;
         }
         const spaceSaved = compressResult.originalBytes > compressResult.finalBytes ? compressResult.originalBytes - compressResult.finalBytes : 0;
         let report = `\u{1F389} Image optimized successfully!

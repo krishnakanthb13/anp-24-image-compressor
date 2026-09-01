@@ -81,7 +81,7 @@ describe('optimizeNote.js', () => {
             expect(appMock.prompt).toHaveBeenCalledTimes(3);
             expect(appMock.replaceNoteContent).toHaveBeenCalledWith(
                 { uuid: 'test-note-uuid' },
-                expect.stringContaining('![Compressed')
+                expect.stringContaining('https://example.com/optimized.jpg')
             );
             expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Note Optimization Completed!'));
         });

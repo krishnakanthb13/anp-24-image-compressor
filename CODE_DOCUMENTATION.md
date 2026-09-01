@@ -65,19 +65,26 @@ flowchart TD
 
 ### 3. Compression Engine (`lib/compressor.js`)
 
+#### `blobToDataUrl(blob)`
+- Asynchronously converts an image `Blob` into a base64-encoded Data URL (`data:...;base64,...`) using `FileReader` with fallback to `arrayBuffer` and `btoa`.
+- Guarantees full compatibility with Amplenote's `app.attachNoteMedia` API across all skip and pass-through paths (avoiding reliance on temporary or leaking `blob:` object URLs).
+
 #### `fetchWithCorsFallback(rawUrl, primaryProxy)`
-- Executes an automated fallback cascade across multiple endpoints:
+- Executes an automated fallback cascade across multiple endpoints with a 15-second `AbortController` timeout per attempt:
   1. Primary Render Proxy (`https://amplenote-plugins-cors-anywhere.onrender.com/`)
   2. Fallback Proxy (`https://corsproxy.io/?url`)
   3. Direct fetch (for local blob/data URLs or non-sandboxed environments).
-- Protects plugin execution from sandbox iframe CORS blocking.
+- Captures explicit HTTP error status codes (e.g. `HTTP 403`, `HTTP 404`) on non-OK responses rather than swallowing them silently.
+- Protects plugin execution from sandbox iframe CORS blocking and cold proxy start hangs.
 
 #### `withPreservedScroll(imageSrc, promptAction)`
 - Captures active editor container scroll offset (`scrollTop`) and anchors to the targeted image.
+- Uses safe CSS selector escaping (`CSS.escape(filename)`) to prevent filenames containing parentheses, brackets, or quotes from throwing selector errors.
 - Restores viewport alignment and scrolls the targeted image into center view across multiple animation frames (`0ms`, `50ms`, `200ms`, `500ms`) when modal prompts close, preventing the editor from jumping or resetting to the top of the note.
 
 #### `insertImageBelow(content, originalSrc, newSrc, auditInfo)`
-- Safely matches the original markdown image tag along with any existing caption line (`(!\[[^\]]*\]\(${escapedSrc}\)(?:\r?\n>[^\r\n]*)?)`).
+- Safely matches the target markdown image tag along with any existing caption line (`(!\[[^\]]*\]\(${escapedSrc}\)(?:\r?\n>[^\r\n]*)?)`).
+- Employs non-global regex matching to avoid stateful `lastIndex` consumption between `.test()` and `.replace()`, ensuring single-occurrence images are always replaced reliably.
 - Inserts the new image block with a **single newline** before the caption quote (`\n\n![Compressed](newSrc)\n> auditInfo`).
 - Strict single newline adherence guarantees Amplenote treats the quote as an attached image caption rather than an isolated blockquote.
 
@@ -108,13 +115,15 @@ flowchart TD
 
 #### `compressImage(imageSource, targetSizeBytes, options, state)`
 - Accepts a URL string or pre-fetched `Blob`.
-- Checks `options.preserveGif` to prevent flattening animated GIFs.
+- Checks `options.preserveGif` to prevent flattening animated GIFs, returning a valid base64 data URL.
+- Automatically handles `options.format`: supports `"image/png"`, `"image/jpeg"`, or `"auto"` (which preserves PNG / WebP transparency).
 - Applies `options.maxDimension` proportionally if the image exceeds the width limit.
-- Checks if original image already complies with size and dimension constraints (zero-overhead bypass).
+- Checks if original image already complies with size and dimension constraints (zero-overhead bypass with data URL return).
 - **Multi-Pass Loop**:
   1. Draws image to an offscreen `<canvas>` at current scale.
-  2. Steps down JPEG quality from `0.9` to `0.1`.
+  2. Steps down quality from `0.9` to `0.1` (or compresses PNG iteratively).
   3. If still oversized, scales down dimensions by `scaleStep = 0.8` and repeats quality reduction.
+- Updates session state image counter safely via `state.imageCount` and `DEFAULT_CONSTANTS.imageCount`.
 - Returns `{ dataUrl, skipped, originalBytes, finalBytes, savingsPercent, width, height }`.
 
 ---
