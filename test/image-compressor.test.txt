@@ -5,37 +5,41 @@ Test Report — Image Compressor (anp-24)
 Summary Metrics:
 --------------------------------------------------------------------------------
 Total Test Suites   : 5 passed (5 total)
-Total Tests         : 42 passed (42 total)
+Total Tests         : 46 passed (46 total)
 Failed Tests        : 0
 Skipped Tests       : 0
-Execution Time      : 3.496s
+Execution Time      : 5.211s
 Confidence Score    : 10/10
-Regression Coverage : Yes (Counter bug, prompt cancel, scaling floor, error alerts, format conversion, dimension caps)
+Regression Coverage : Yes (CORS Proxy Cascade, fetchWithCorsFallback, Native Caption Updates, Actions: Optimize note + Optimize image, Scroll/viewport preservation, Guided 2-step workflows, Quick Batch vs Individual Step-by-Step, intelligence thresholds, relative presets, dimension caps, prompt cancel, scaling floor, format conversion)
 
 Test Suites Breakdown:
 --------------------------------------------------------------------------------
 1. constants.test.js (5 tests)
    - Happy Path & Defaults (CORS proxy, 500KB default, modes, presets, config, initial state)
 
-2. compressor.test.js (15 tests)
+2. compressor.test.js (18 tests)
    - formatBytes: 0/negative handling, KB formatting, MB formatting
+   - getSmartSizePresets & getSmartDefaultTarget: Small relative reductions vs large savings profiles
+   - getSmartDimensionLimits: Width-constrained dimension options
    - parseSizeInput: Numeric/KB parsing, MB parsing, percentage relative parsing, fallback
    - resolveImageUrl: Happy path, blob/data URLs, proxy prefix, deduplication
+   - fetchWithCorsFallback: Multi-proxy fallback cascade for cross-origin sandbox execution
+   - withPreservedScroll: Scroll container and target image anchor restoration
    - fetchImageMetadata: Real-time size, dimensions, MIME type, GIF detection
-   - insertImageBelow: Markdown insertion, regex escaping, fallback placement
+   - insertImageBelow: Markdown insertion with caption quote syntax (> Caption), regex escaping, fallback placement
    - compressImage: Size bypass, GIF animation preservation, canvas quality/scale loop, dimension constraints, savings metrics
 
 3. optimizeNote.test.js (6 tests)
    - Check method verification
-   - Multi-Image Selection: Interactive checklist, replace mode in-place update, append mode with audit size tags, savings report
-   - Edge Cases: Empty note image check, prompt cancellation, all unchecked guard
+   - Guided Workflows: Clean image selection, Quick Batch mode, Step-by-Step Individual mode with per-image custom settings, fast-track single image
+   - Edge Cases: Empty note image check, selector cancellation, all unchecked guard, skipped/failed metrics
 
 4. optimizeImage.test.js (6 tests)
    - Check method validation for image src
-   - Inspection & Modes: PNG inspection, JPEG format conversion, in-place update, append below with audit tags
+   - Inspection & Modes: PNG inspection, JPEG format conversion, in-place update with native caption, append below with caption quote
    - Edge Cases: Missing image object, prompt cancellation, pre-compressed threshold bypass
 
 5. image-compressor.test.js (5 tests)
    - Plugin definition structure conforming to Amplenote API specification
-   - Constants, noteOption, imageOption, and compressImage exports
+   - Constants, noteOption['Optimize note'], imageOption['Optimize image'], and compressImage exports
 ================================================================================

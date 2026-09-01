@@ -1,23 +1,66 @@
 # Image Compressor Plugin for Amplenote
 
-A high-performance Amplenote plugin that inspects, analyzes, and compresses oversized images in your notes directly within the browser using the HTML5 Canvas API. Features real-time size inspection, interactive multi-image selection, resolution downscaling, format optimization, and non-destructive audit tagging.
+A high-performance, privacy-first Amplenote plugin that intelligently inspects, analyzes, and compresses images in your notes directly within the browser using the HTML5 Canvas API. Features viewport/scroll position preservation, a clean 2-step guided workflow, intelligent size thresholds, contextual reduction presets, real-time metadata inspection, interactive multi-image selection, resolution downscaling, format optimization, native Amplenote image caption formatting, and non-destructive audit tagging.
+
+---
+
+## Actions & Options
+
+- 📝 **`noteOption["Optimize note"]`**: Note-level multi-image optimizer with guided 2-step workflow (Quick Batch or Step-by-Step Individual).
+- 🖼️ **`imageOption["Optimize image"]`**: Direct drop-down menu action on any individual image in your note with live metadata analysis and instant savings alerts.
 
 ---
 
 ## Key Features
 
+- 📍 **Viewport & Scroll Position Preservation**:
+  - Automatically captures the editor's scroll position and active image element before opening modal dialogs and seamlessly restores viewport alignment across multiple animation frames (`0ms`, `50ms`, `200ms`, `500ms`), preventing the editor from jumping or resetting cursor to the top of the note.
+- 🏷️ **Native Amplenote Image Caption Audit Notes**:
+  - In **Replace Mode**: Directly updates the image's native `caption` property via Amplenote's API (`app.context.updateImage` / `app.updateNoteImage`), ensuring the savings audit note (`Compressed: 355 KB (was 3.98 MB — 91% saved)`) renders attached directly beneath the image box.
+  - In **Append Mode**: Formats markdown with strict single-newline syntax (`![Compressed](url)\n> Caption`) so Amplenote attaches it as an image caption rather than an isolated blockquote.
+- 🧙‍♂️ **Guided 2-Step Workflow (`noteOption` -> "Optimize note")**:
+  - **Step 1 — Clean Image Selector**: Presents a clean, focused checklist showing each image's size, dimensions ($W \times H$), and `[Needs Optimization]` vs `[Optimized]` status badges, without overwhelming the user with settings.
+  - **Step 2 — Flexible Strategy Choice**:
+    - **`⚡ Quick Batch`**: Apply unified target size, format, and dimension limits across all selected images simultaneously.
+    - **`🎯 Step-by-Step Individual`**: Inspect and configure each selected image individually with its own custom target size, dimension cap, format, and placement mode.
+    - **Fast-Track**: If only 1 image is selected, fast-tracks directly to its individual configuration.
+- 🧠 **Context-Aware Intelligence**:
+  - **No Illogical 500 KB Targets on Small Images**: When inspecting a lightweight image (e.g. 31 KB), the plugin automatically detects that it is already optimized and replaces static targets with relative reduction options (`50% Reduction (~16 KB)`, `75% Reduction (~8 KB)`, `Tiny Thumbnail (10 KB)`).
+  - **Note-Wide Optimization Status**: When analyzing a note where all images are already small (e.g., 3 images totaling 95 KB), the dialog immediately confirms that all images are already lightweight and optimized, avoiding false alarm banners.
+  - **Smart Dimension Filtering**: Dimension caps are scaled to the image's actual resolution (e.g., a 612 px image will only offer `Keep 612 px` or `Max 400 px Thumbnail`, not irrelevant 1920 px Full HD options).
+  - **Contextual Format Conversion**: Format conversion options are tailored to whether the source image is PNG/WebP (70–90% reduction via JPEG) or already standard JPEG.
 - 📊 **Real-Time Image Inspection**: Pre-fetches and displays exact file sizes (in KB/MB), pixel dimensions ($W \times H$), and MIME types before compressing.
-- 📋 **Multi-Image Selection Checklist (`noteOption`)**: Shows an interactive checklist of all images in the note with their current sizes and dimensions, allowing you to select exactly which images to optimize.
-- 🎯 **Single-Image Optimization (`imageOption`)**: Direct drop-down menu action on any individual image in your note with live metadata analysis.
-- ⚡ **Presets & Flexible Custom Sizing**: Choose from convenient quick presets (`500 KB`, `250 KB`, `100 KB`, `50% of original`, `25% of original`) or enter custom targets supporting `KB`, `MB`, and `%`.
+- 🎯 **Single-Image Optimization (`imageOption` -> "Optimize image")**: Direct drop-down menu action on any individual image in your note with live metadata analysis and instant savings alerts.
+- ⚡ **Presets & Flexible Custom Sizing**: Choose from smart contextual presets (`500 KB`, `250 KB`, `100 KB`, `50% reduction`, `25% reduction`) or enter custom targets supporting `KB`, `MB`, and `%`.
 - 🔄 **PNG/WebP to JPEG Optimization**: Optional automatic format conversion to reduce photographic screenshots and PNGs by 70–90%.
 - 📐 **Max Width Dimension Limiting**: Constrain massive 4K/iPhone camera photos to standard display sizes (`1920 px Full HD`, `1280 px HD`, `800 px Inline`) preserving aspect ratio.
 - 🎬 **GIF Animation Protection**: Automatically detects animated `.gif` files with an option to skip them so animations are preserved.
 - 🛡️ **Dual Placement Modes**:
-  - **In-place Replacement (`replace`)**: Updates note images directly with their optimized versions.
-  - **Append Below (`append`)**: Safely preserves the original full-resolution image and inserts the compressed version (`![Compressed (480 KB from 3.2 MB): Caption](...)`) immediately below it.
+  - **In-place Replacement (`replace`)**: Updates note images directly with their optimized versions and updates the native caption.
+  - **Append Below (`append`)**: Safely preserves the original full-resolution image and inserts the compressed version with its caption quote immediately below it.
 - 📈 **Detailed Savings Report**: Displays comprehensive before/after statistics and percentage space saved upon completion.
 - 🔒 **Zero Third-Party Runtime Dependencies**: Runs purely client-side using standard Web Platform APIs (`Canvas 2D`, `createImageBitmap`, `fetch`, `Blob`).
+
+---
+
+## Amplenote Caption & Image Insertion Mechanics
+
+### 1. In-Place Replacement (`replace`)
+- Targets only the specific image object in Amplenote's internal document tree using `app.context.updateImage({ src, caption })` or `app.updateNoteImage(noteHandle, image, { src, caption })`.
+- Does **not** replace the full note markdown.
+- Directly updates the image `src` URL and binds the compression audit caption to Amplenote's native caption container.
+
+### 2. Append Below (`append`)
+- Reads the note markdown via `app.getNoteContent(noteHandle)`.
+- Matches the original image tag (and its existing caption line, if present) using regex.
+- Inserts the new image block with a **single newline** before the caption quote:
+  ```markdown
+  ![Compressed](https://images.amplenote.com/optimized.jpg)
+  > 🗜️ Compressed: 355 KB (was 3.98 MB — 91% saved)
+  ```
+  > [!NOTE]
+  > Amplenote requires `> Caption` to follow `![image](url)` with a single `\n` (no empty line). An empty line (`\n\n`) would turn the caption into a detached blockquote instead of an image caption.
+- Writes back the updated content via `app.replaceNoteContent(noteHandle, updatedContent)`.
 
 ---
 
@@ -29,9 +72,9 @@ A high-performance Amplenote plugin that inspects, analyzes, and compresses over
 | Field | Value |
 | :--- | :--- |
 | `name` | Image Compressor |
-| `description` | Inspect and compress oversized images in your notes with custom presets, interactive checklist, and non-destructive options. |
+| `description` | Inspect and optimize oversized images in your notes with intelligent presets, guided batch/individual workflows, and non-destructive options. |
 | `icon` | photo_size_select_large |
-| `instructions` | Use the note options menu (...) -> "Optimize note" to inspect and select images to compress, or click the triple dot menu on any image -> "Compress image" to inspect and optimize an individual image. |
+| `instructions` | Use the note options menu (...) -> "Optimize note" to inspect and select images to compress, or click the triple dot menu on any image -> "Optimize image" to inspect and optimize an individual image. |
 
 3. **Insert Code Block**: Below the metadata table, insert a Javascript code block (type ` ```javascript `).
 4. **Paste Compiled Code**: Copy the entire contents of [`build/image-compressor.compiled.js`](build/image-compressor.compiled.js) and paste it into the code block.
@@ -39,28 +82,53 @@ A high-performance Amplenote plugin that inspects, analyzes, and compresses over
 
 ---
 
-## Usage
+## Usage Workflows
 
 ### 1. Optimize Note (`noteOption` -> "Optimize note")
-1. Open any note with images and click the note menu (`...`) -> **Optimize note**.
-2. An interactive dialog presents:
-   - **Image Checklist**: Each image listed with its current size, dimensions, and caption. Images $> 500$ KB are pre-checked automatically.
-   - **Target Size Preset**: Quick profiles (`500 KB`, `250 KB`, `100 KB`, `50%`, `25%`).
-   - **Custom Target Size**: Enter custom values like `300 KB`, `1.2 MB`, or `40%`.
-   - **Max Width Limit**: Optional resolution cap (`1920 px`, `1280 px`, `800 px`).
-   - **Format Optimization**: Convert PNG/WebP to JPEG for maximum space savings.
-   - **Output Mode**: In-place replacement vs. append below original.
-   - **GIF Handling**: Skip animated GIFs to preserve animation.
-3. Review the savings report showing total space reduction!
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Selector Dialog: Select Images & Strategy                │
+│    [x] Image 1: 3.2 MB (4032×3024px) [Needs Optimization]   │
+│    [x] Image 2: 1.8 MB (1920×1080px) [Needs Optimization]   │
+│    Strategy: [⚡ Quick Batch | 🎯 Step-by-Step Individual]   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            ▼                                     ▼
+┌──────────────────────────────┐    ┌──────────────────────────────┐
+│ Branch A: Quick Batch        │    │ Branch B: Step-by-Step       │
+│ • Unified Target Size        │    │ • Image 1: Custom Settings   │
+│ • Unified Max Dimension Cap  │    │ • Image 2: Custom Settings   │
+│ • Unified Placement Mode     │    │ • Individual Format Options  │
+└──────────────┬───────────────┘    └──────────────┬───────────────┘
+               │                                   │
+               └─────────────────┬─────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 🎉 Savings Report: "Saved 4.2 MB (78% space reduction)"     │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### 2. Compress Single Image (`imageOption` -> "Compress image")
-1. Click the drop-down menu on any image in a note -> **Compress image**.
+1. Click the note menu (`...`) -> **Optimize note**.
+2. **Step 1 (Image Selector)**:
+   - Check the images you want to optimize (oversized images $> 500$ KB are pre-checked).
+   - Choose **⚡ Quick Batch** (apply settings to all) or **🎯 Step-by-Step** (customize each image).
+3. **Step 2 (Configuration)**:
+   - In **Quick Batch**: Configure a single dialog with preset size, dimension cap, format, and mode.
+   - In **Step-by-Step**: Configure each image individually with dedicated inspection metrics.
+4. **Savings Summary**: Review the final report showing total space reduction across the note.
+
+---
+
+### 2. Optimize Image (`imageOption` -> "Optimize image")
+1. Click the drop-down menu on any image in a note -> **Optimize image**.
 2. The dialog immediately displays:
    - Current file size in KB/MB and exact byte count.
    - Pixel dimensions ($W \times H$).
    - Current format and animated GIF detection.
-3. Select your target preset, custom threshold, dimension limit, and placement mode.
-4. The image is compressed and attached seamlessly.
+   - Intelligent status badge (`Already Optimized`, `Within Limits`, or `Large Image`).
+3. Select your target preset (with calculated percentage savings), custom threshold, dimension limit, and placement mode.
+4. The image is compressed and attached seamlessly with a detailed before/after savings summary and caption update while your scroll position is preserved.
 
 ---
 
@@ -72,16 +140,16 @@ anp-24-image-compressor/
 ├── build/
 │   └── image-compressor.compiled.js  ← Compiled IIFE bundle
 ├── lib/
-│   ├── constants.js          ← Presets, dimension limits, quality steps
-│   ├── compressor.js         ← Metadata inspection, parsing, multi-pass canvas loop
-│   ├── optimizeNote.js       ← noteOption multi-image checklist handler
+│   ├── constants.js          ← Thresholds, presets, dimension limits, quality steps
+│   ├── compressor.js         ← Metadata inspection, CORS fallback, scroll lock, multi-pass canvas loop
+│   ├── optimizeNote.js       ← noteOption guided 2-step workflow handler
 │   ├── optimizeImage.js      ← imageOption live inspection & optimization handler
 │   └── index.js              ← Barrel export
 └── test/
     ├── constants.test.js     ← Unit tests for constants
-    ├── compressor.test.js    ← Tests for compression engine & metadata parsing
-    ├── optimizeNote.test.js  ← Tests for checklist & savings report
-    ├── optimizeImage.test.js ← Tests for image inspection & format conversion
+    ├── compressor.test.js    ← Tests for compression engine, CORS cascade, smart presets, scroll anchor
+    ├── optimizeNote.test.js  ← Tests for guided workflows, batch & step-by-step modes, captions
+    ├── optimizeImage.test.js ← Tests for image inspection, captions, & format conversion
     └── image-compressor.test.js ← API compliance tests
 ```
 

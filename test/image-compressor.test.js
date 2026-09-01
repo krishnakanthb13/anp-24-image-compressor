@@ -3,8 +3,8 @@ import plugin from '../image-compressor.js';
 describe('image-compressor.js — Plugin Definition', () => {
     describe('Entry Point Structure — Happy Path', () => {
         it('exports a valid plugin object conforming to Amplenote API spec', () => {
+            expect(plugin).toBeDefined();
             expect(typeof plugin).toBe('object');
-            expect(plugin).not.toBeNull();
         });
 
         it('contains initial constants with imageCount 0', () => {
@@ -14,16 +14,16 @@ describe('image-compressor.js — Plugin Definition', () => {
 
         it('exposes "Optimize note" under noteOption', () => {
             expect(plugin.noteOption).toBeDefined();
-            expect(typeof plugin.noteOption['Optimize note']).toBe('object');
-            expect(typeof plugin.noteOption['Optimize note'].check).toBe('function');
+            expect(plugin.noteOption['Optimize note']).toBeDefined();
             expect(typeof plugin.noteOption['Optimize note'].run).toBe('function');
+            expect(typeof plugin.noteOption['Optimize note'].check).toBe('function');
         });
 
-        it('exposes "Compress image" under imageOption', () => {
+        it('exposes "Optimize image" under imageOption', () => {
             expect(plugin.imageOption).toBeDefined();
-            expect(typeof plugin.imageOption['Compress image']).toBe('object');
-            expect(typeof plugin.imageOption['Compress image'].check).toBe('function');
-            expect(typeof plugin.imageOption['Compress image'].run).toBe('function');
+            expect(plugin.imageOption['Optimize image']).toBeDefined();
+            expect(typeof plugin.imageOption['Optimize image'].run).toBe('function');
+            expect(typeof plugin.imageOption['Optimize image'].check).toBe('function');
         });
 
         it('exposes compressImage engine method', () => {

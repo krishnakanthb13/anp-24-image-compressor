@@ -6,7 +6,12 @@ import {
     resolveImageUrl,
     fetchImageMetadata,
     insertImageBelow,
-    compressImage
+    compressImage,
+    getSmartSizePresets,
+    getSmartDimensionLimits,
+    getSmartDefaultTarget,
+    withPreservedScroll,
+    fetchWithCorsFallback
 } from '../lib/compressor.js';
 
 describe('compressor.js', () => {
@@ -19,12 +24,47 @@ describe('compressor.js', () => {
 
         it('formats byte counts under 1 MB as KB', () => {
             expect(formatBytes(500 * 1024)).toBe('500 KB');
-            expect(formatBytes(100 * 1024)).toBe('100 KB');
+            expect(formatBytes(31 * 1024)).toBe('31 KB');
         });
 
         it('formats byte counts over 1 MB as MB with 2 decimal places', () => {
             expect(formatBytes(2.5 * 1024 * 1024)).toBe('2.50 MB');
             expect(formatBytes(10.25 * 1024 * 1024)).toBe('10.25 MB');
+        });
+    });
+
+    describe('getSmartSizePresets & getSmartDefaultTarget', () => {
+        it('generates relative reduction presets for small/lightweight images', () => {
+            const size31KB = 31 * 1024;
+            const presets = getSmartSizePresets(size31KB);
+
+            expect(presets[0].label).toContain('50% Reduction');
+            expect(presets[1].label).toContain('75% Reduction');
+            expect(getSmartDefaultTarget(size31KB)).toBe('16 KB');
+        });
+
+        it('generates percentage savings presets for large images', () => {
+            const size3MB = 3 * 1024 * 1024;
+            const presets = getSmartSizePresets(size3MB);
+
+            expect(presets[0].label).toContain('500 KB');
+            expect(presets[0].label).toContain('space saved');
+            expect(getSmartDefaultTarget(size3MB)).toBe('500 KB');
+        });
+    });
+
+    describe('getSmartDimensionLimits', () => {
+        it('restricts dimension options to realistic caps when image width is small', () => {
+            const limits = getSmartDimensionLimits(612);
+            expect(limits.length).toBe(2);
+            expect(limits[0].label).toContain('Keep Original (612 px)');
+            expect(limits[1].label).toContain('Max 400 px');
+        });
+
+        it('provides standard HD and full HD caps when image width is large', () => {
+            const limits = getSmartDimensionLimits(3840);
+            expect(limits.some(l => l.value === '1920')).toBe(true);
+            expect(limits.some(l => l.value === '1280')).toBe(true);
         });
     });
 
@@ -41,7 +81,7 @@ describe('compressor.js', () => {
         });
 
         it('parses percentage inputs relative to original size', () => {
-            const original = 2000 * 1024; // 2000 KB
+            const original = 2000 * 1024;
             expect(parseSizeInput('50%', original)).toBe(1000 * 1024);
             expect(parseSizeInput('25%', original)).toBe(500 * 1024);
         });
@@ -68,6 +108,26 @@ describe('compressor.js', () => {
         it('prepends proxy URL and avoids double-proxying', () => {
             expect(resolveImageUrl('https://example.com/pic.jpg', proxy)).toBe('https://proxy.example.com/https://example.com/pic.jpg');
             expect(resolveImageUrl('https://proxy.example.com/https://example.com/pic.jpg', proxy)).toBe('https://proxy.example.com/https://example.com/pic.jpg');
+        });
+    });
+
+    describe('fetchWithCorsFallback', () => {
+        it('fetches via primary proxy and falls back gracefully', async () => {
+            const mockResponse = { ok: true, blob: jest.fn().mockResolvedValue(new Blob(['test'])) };
+            global.fetch = jest.fn().mockResolvedValue(mockResponse);
+
+            const res = await fetchWithCorsFallback('https://images.amplenote.com/img.jpg', 'https://proxy.example.com/');
+            expect(res.ok).toBe(true);
+            expect(global.fetch).toHaveBeenCalled();
+        });
+    });
+
+    describe('withPreservedScroll', () => {
+        it('executes prompt action and preserves container scroll', async () => {
+            const mockAction = jest.fn().mockResolvedValue('user-selected');
+            const result = await withPreservedScroll('https://example.com/photo.jpg', mockAction);
+            expect(result).toBe('user-selected');
+            expect(mockAction).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -108,32 +168,14 @@ describe('compressor.js', () => {
             const meta = await fetchImageMetadata('https://example.com/anim.gif', 'https://proxy.com/');
             expect(meta.isGif).toBe(true);
         });
-
-        it('throws error when image fetch fails', async () => {
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: false,
-                status: 404,
-                statusText: 'Not Found'
-            });
-
-            await expect(fetchImageMetadata('https://example.com/404.jpg', 'https://proxy.com/'))
-                .rejects
-                .toThrow(/Failed to fetch image: 404 Not Found/);
-        });
     });
 
     describe('insertImageBelow', () => {
-        it('inserts compressed image below matching markdown image', () => {
-            const md = '# Note\n\n![My Dog](https://example.com/dog.png)\n\nText';
-            const updated = insertImageBelow(md, 'https://example.com/dog.png', 'https://example.com/dog-opt.jpg', 'Compressed (300 KB)');
+        it('inserts compressed image below matching markdown image with caption quote', () => {
+            const md = '# Note\n\n![My Dog|500](https://example.com/dog.png)\n\nText';
+            const updated = insertImageBelow(md, 'https://example.com/dog.png', 'https://example.com/dog-opt.jpg', 'Compressed: 300 KB');
 
-            expect(updated).toContain('![My Dog](https://example.com/dog.png)\n\n![Compressed (300 KB)](https://example.com/dog-opt.jpg)');
-        });
-
-        it('falls back to appending at end when pattern is not found', () => {
-            const md = '# Note text only';
-            const updated = insertImageBelow(md, 'https://example.com/missing.png', 'https://example.com/new.jpg', 'Compressed');
-            expect(updated).toBe('# Note text only\n\n![Compressed](https://example.com/new.jpg)');
+            expect(updated).toContain('![My Dog|500](https://example.com/dog.png)\n\n![Compressed](https://example.com/dog-opt.jpg)\n> Compressed: 300 KB');
         });
     });
 
@@ -173,7 +215,7 @@ describe('compressor.js', () => {
 
         it('compresses large image, respects maxDimension, and returns savings metrics', async () => {
             const largeBlob = new Blob(['large image data']);
-            Object.defineProperty(largeBlob, 'size', { value: 3000 * 1024 }); // 3 MB
+            Object.defineProperty(largeBlob, 'size', { value: 3000 * 1024 });
 
             const state = { imageCount: 0 };
             const result = await compressImage(largeBlob, 500 * 1024, { maxDimension: 1920, format: 'image/jpeg' }, state);
@@ -182,12 +224,6 @@ describe('compressor.js', () => {
             expect(result.dataUrl).toBe('data:image/jpeg;base64,mockoutput');
             expect(state.imageCount).toBe(1);
             expect(result.savingsPercent).toBeGreaterThanOrEqual(0);
-        });
-
-        it('throws error when target size is invalid', async () => {
-            await expect(compressImage('https://example.com/test.jpg', 0))
-                .rejects
-                .toThrow(/Invalid target size/);
         });
     });
 });

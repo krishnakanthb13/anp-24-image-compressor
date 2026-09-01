@@ -1,76 +1,84 @@
+PASS anp-24-image-compressor/test/optimizeImage.test.js
+  optimizeImage.js
+    optimizeImage.check
+      √ returns true when valid image with src is provided (34 ms)
+      √ returns false when image or src is missing (4 ms)
+    optimizeImage.run — Inspection & Optimization Modes
+      √ inspects PNG image, offers JPEG conversion, and updates in-place with caption (40 ms)
+      √ appends compressed image below original when append mode is selected (4 ms)
+    optimizeImage.run — Edge Cases & Guards
+      √ alerts if no image object is provided (4 ms)
+      √ exits quietly when user cancels the prompt (4 ms)
+      √ alerts when image is already under target threshold (4 ms)
+
 PASS anp-24-image-compressor/test/optimizeNote.test.js
   optimizeNote.js
     optimizeNote.check
-      √ returns true for checking capability (16 ms)
-    optimizeNote.run — Multi-Image Selection & Modes
-      √ processes selected image in replace mode and presents savings report (12 ms)
-      √ appends compressed image with audit size tag in append mode (3 ms)
+      √ returns true for checking capability (27 ms)
+    optimizeNote.run — Guided Workflows
+      √ executes Quick Batch workflow across multiple selected images (37 ms)
+      √ executes Step-by-Step Individual workflow allowing custom settings per image (6 ms)
+      √ fast-tracks single selected image directly into single configuration (4 ms)
     optimizeNote.run — Edge Cases & Guards
-      √ alerts and stops if no images exist in note (2 ms)
-      √ exits quietly if user cancels the prompt (2 ms)
-      √ alerts if user unchecks all images in the checklist (2 ms)
+      √ alerts and stops if no images exist in note (4 ms)
+      √ exits quietly if user cancels the selector dialog (1 ms)
+      √ alerts if user unchecks all images in the selector (3 ms)
 
 PASS anp-24-image-compressor/test/compressor.test.js
   compressor.js
     formatBytes
-      √ formats 0 or negative bytes to 0 KB (14 ms)
-      √ formats byte counts under 1 MB as KB (1 ms)
+      √ formats 0 or negative bytes to 0 KB (38 ms)
+      √ formats byte counts under 1 MB as KB (2 ms)
       √ formats byte counts over 1 MB as MB with 2 decimal places (1 ms)
+    getSmartSizePresets & getSmartDefaultTarget
+      √ generates relative reduction presets for small/lightweight images (3 ms)
+      √ generates percentage savings presets for large images (1 ms)
+    getSmartDimensionLimits
+      √ restricts dimension options to realistic caps when image width is small (1 ms)
+      √ provides standard HD and full HD caps when image width is large (1 ms)
     parseSizeInput
       √ parses numeric and KB inputs (2 ms)
       √ parses MB inputs (1 ms)
-      √ parses percentage inputs relative to original size (1 ms)
-      √ falls back to default 500 KB on invalid or empty input (1 ms)
+      √ parses percentage inputs relative to original size (3 ms)
+      √ falls back to default 500 KB on invalid or empty input
     resolveImageUrl
       √ returns empty string when url is empty or null (1 ms)
-      √ leaves data and blob URLs untouched (1 ms)
+      √ leaves data and blob URLs untouched
       √ prepends proxy URL and avoids double-proxying (1 ms)
+    fetchWithCorsFallback
+      √ fetches via primary proxy and falls back gracefully (4 ms)
+    withPreservedScroll
+      √ executes prompt action and preserves container scroll (19 ms)
     fetchImageMetadata
-      √ fetches image and returns detailed metadata (4 ms)
+      √ fetches image and returns detailed metadata (2 ms)
       √ identifies GIF images accurately (1 ms)
-      √ throws error when image fetch fails (4 ms)
     insertImageBelow
-      √ inserts compressed image below matching markdown image (1 ms)
-      √ falls back to appending at end when pattern is not found (1 ms)
+      √ inserts compressed image below matching markdown image with caption quote (2 ms)
     compressImage
-      √ skips compression if image is already within target bytes and no dimension limit (2 ms)
-      √ preserves GIF animation without flattening if preserveGif is enabled (1 ms)
-      √ compresses large image, respects maxDimension, and returns savings metrics (6 ms)
-      √ throws error when target size is invalid (8 ms)
-
-PASS anp-24-image-compressor/test/optimizeImage.test.js
-  optimizeImage.js
-    optimizeImage.check
-      √ returns true when valid image with src is provided (22 ms)
-      √ returns false when image or src is missing (1 ms)
-    optimizeImage.run — Inspection & Optimization Modes
-      √ inspects PNG image, offers JPEG conversion, and updates in-place (85 ms)
-      √ appends compressed image below original when append mode is selected (4 ms)
-    optimizeImage.run — Edge Cases & Guards
-      √ alerts if no image object is provided (2 ms)
-      √ exits quietly when user cancels the prompt (3 ms)
-      √ alerts when image is already under target threshold (2 ms)
+      √ skips compression if image is already within target bytes and no dimension limit (4 ms)
+      √ preserves GIF animation without flattening if preserveGif is enabled (2 ms)
+      √ compresses large image, respects maxDimension, and returns savings metrics (7 ms)
 
 PASS anp-24-image-compressor/test/constants.test.js
   constants.js
     Constants — Happy Path & Defaults
       √ exports correct CORS_PROXY_URL (4 ms)
-      √ exports default max size of 500 KB per ds.md specification (1 ms)
-      √ defines replace and append compression modes (1 ms)
-      √ provides valid compression step configuration (10 ms)
-      √ initializes default image count state to 0 (1 ms)
+      √ exports default max size of 500 KB per ds.md specification
+      √ defines replace and append compression modes
+      √ provides valid compression step configuration (2 ms)
+      √ initializes default image count state to 0
 
 PASS anp-24-image-compressor/test/image-compressor.test.js
   image-compressor.js — Plugin Definition
     Entry Point Structure — Happy Path
-      √ exports a valid plugin object conforming to Amplenote API spec (4 ms)
+      √ exports a valid plugin object conforming to Amplenote API spec (5 ms)
       √ contains initial constants with imageCount 0 (1 ms)
       √ exposes "Optimize note" under noteOption (1 ms)
-      √ exposes "Compress image" under imageOption (1 ms)
+      √ exposes "Optimize image" under imageOption (1 ms)
       √ exposes compressImage engine method (1 ms)
 
 Test Suites: 5 passed, 5 total
-Tests:       42 passed, 42 total
+Tests:       46 passed, 46 total
 Snapshots:   0 total
-Time:        3.496 s
+Time:        5.211 s
 Ran all test suites matching /anp-24-image-compressor/test/i.

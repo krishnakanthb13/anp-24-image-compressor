@@ -1,36 +1,43 @@
 /** @jest-environment jsdom */
 import { jest } from '@jest/globals';
 import { optimizeNote } from '../lib/optimizeNote.js';
+import { COMPRESSION_MODES } from '../lib/constants.js';
 
 describe('optimizeNote.js', () => {
     let appMock;
 
     beforeEach(() => {
         appMock = {
-            context: { noteUUID: 'test-note-uuid' },
-            getNoteImages: jest.fn(),
-            getNoteContent: jest.fn(),
-            replaceNoteContent: jest.fn(),
-            updateNoteImage: jest.fn(),
-            attachNoteMedia: jest.fn(),
+            alert: jest.fn().mockResolvedValue(undefined),
             prompt: jest.fn(),
-            alert: jest.fn(),
-            notes: {
-                find: jest.fn().mockResolvedValue({
-                    updateImage: jest.fn(),
-                    replaceContent: jest.fn()
-                })
-            }
+            getNoteImages: jest.fn().mockResolvedValue([
+                { src: 'https://example.com/photo1.jpg', caption: 'First Photo' },
+                { src: 'https://example.com/photo2.png', caption: 'Second Photo' }
+            ]),
+            attachNoteMedia: jest.fn().mockResolvedValue('https://example.com/optimized.jpg'),
+            getNoteContent: jest.fn().mockResolvedValue(
+                '# Vacation\n\n![First Photo](https://example.com/photo1.jpg)\n\n![Second Photo](https://example.com/photo2.png)'
+            ),
+            replaceNoteContent: jest.fn().mockResolvedValue(true),
+            updateNoteImage: jest.fn().mockResolvedValue(true)
         };
 
-        global.URL.createObjectURL = jest.fn().mockReturnValue('blob:http://localhost/cached-blob');
-        global.createImageBitmap = jest.fn().mockResolvedValue({ width: 1920, height: 1080 });
+        const mockBlob = new Blob(['sample-data'], { type: 'image/jpeg' });
+        Object.defineProperty(mockBlob, 'size', { value: 1800 * 1024 });
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            blob: jest.fn().mockResolvedValue(mockBlob)
+        });
+
+        global.createImageBitmap = jest.fn().mockResolvedValue({ width: 2400, height: 1600 });
+
         jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
             clearRect: jest.fn(),
             drawImage: jest.fn()
         });
-        jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,mockdata');
-        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,mockoutput');
     });
 
     afterEach(() => {
@@ -39,100 +46,86 @@ describe('optimizeNote.js', () => {
 
     describe('optimizeNote.check', () => {
         it('returns true for checking capability', async () => {
-            const result = await optimizeNote.check(appMock, 'test-note-uuid');
-            expect(result).toBe(true);
+            expect(await optimizeNote.check(appMock)).toBe(true);
         });
     });
 
-    describe('optimizeNote.run — Multi-Image Selection & Modes', () => {
-        it('processes selected image in replace mode and presents savings report', async () => {
-            const largeBlob = new Blob(['large image data']);
-            Object.defineProperty(largeBlob, 'size', { value: 2000 * 1024 }); // 2 MB
-
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: true,
-                status: 200,
-                blob: jest.fn().mockResolvedValue(largeBlob)
-            });
-
-            appMock.getNoteImages.mockResolvedValue([
-                { src: 'https://example.com/big.jpg', caption: 'Big Picture' }
-            ]);
-
-            // Dialog returns: [image1_selected, preset, customSize, maxDim, format, mode, preserveGif]
-            appMock.prompt.mockResolvedValue([true, '500kb', '500 KB', '0', 'image/jpeg', 'replace', true]);
-            appMock.attachNoteMedia.mockResolvedValue('https://amplenote.com/attached.jpg');
+    describe('optimizeNote.run — Guided Workflows', () => {
+        it('executes Quick Batch workflow across multiple selected images', async () => {
+            // Step 1: Select both images + strategy 'batch'
+            // Step 2: Batch settings: 500kb, 500 KB, maxDim 1920, jpeg, replace, true
+            appMock.prompt
+                .mockResolvedValueOnce([true, true, 'batch'])
+                .mockResolvedValueOnce(['500kb', '500 KB', '1920', 'image/jpeg', COMPRESSION_MODES.REPLACE, true]);
 
             const pluginContext = { constants: { imageCount: 0 } };
             await optimizeNote.run.call(pluginContext, appMock, 'test-note-uuid');
 
-            expect(appMock.attachNoteMedia).toHaveBeenCalledWith({ uuid: 'test-note-uuid' }, 'data:image/jpeg;base64,mockdata');
-            expect(appMock.updateNoteImage).toHaveBeenCalledWith(
-                { uuid: 'test-note-uuid' },
-                expect.objectContaining({ src: 'https://example.com/big.jpg' }),
-                { src: 'https://amplenote.com/attached.jpg' }
-            );
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Successfully optimized 1 image'));
-            expect(pluginContext.constants.imageCount).toBe(1);
+            expect(appMock.prompt).toHaveBeenCalledTimes(2);
+            expect(appMock.attachNoteMedia).toHaveBeenCalledTimes(2);
+            expect(appMock.updateNoteImage).toHaveBeenCalledTimes(2);
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Note Optimization Completed!'));
+            expect(pluginContext.constants.imageCount).toBe(2);
         });
 
-        it('appends compressed image with audit size tag in append mode', async () => {
-            const largeBlob = new Blob(['large image data']);
-            Object.defineProperty(largeBlob, 'size', { value: 2000 * 1024 });
-
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: true,
-                status: 200,
-                blob: jest.fn().mockResolvedValue(largeBlob)
-            });
-
-            appMock.getNoteImages.mockResolvedValue([
-                { src: 'https://example.com/photo.jpg', caption: 'Scenic' }
-            ]);
-            appMock.getNoteContent.mockResolvedValue('# Note\n\n![Scenic](https://example.com/photo.jpg)\n\nEnd text');
-            appMock.prompt.mockResolvedValue([true, '500kb', '500 KB', '0', 'image/jpeg', 'append', true]);
-            appMock.attachNoteMedia.mockResolvedValue('https://amplenote.com/compressed.jpg');
+        it('executes Step-by-Step Individual workflow allowing custom settings per image', async () => {
+            // Step 1: Select both images + strategy 'individual'
+            // Step 2: Prompt for Image 1, Prompt for Image 2
+            appMock.prompt
+                .mockResolvedValueOnce([true, true, 'individual'])
+                .mockResolvedValueOnce(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.REPLACE, true])
+                .mockResolvedValueOnce(['250kb', '250 KB', '0', 'image/jpeg', COMPRESSION_MODES.APPEND, true]);
 
             await optimizeNote.run(appMock, 'test-note-uuid');
 
+            expect(appMock.prompt).toHaveBeenCalledTimes(3);
             expect(appMock.replaceNoteContent).toHaveBeenCalledWith(
                 { uuid: 'test-note-uuid' },
                 expect.stringContaining('![Compressed')
             );
-            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('added below originals'));
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Note Optimization Completed!'));
+        });
+
+        it('fast-tracks single selected image directly into single configuration', async () => {
+            // Step 1: Select only 1 image out of 2 + strategy 'batch'
+            // Step 2: Directly prompts for that single image
+            appMock.prompt
+                .mockResolvedValueOnce([true, false, 'batch'])
+                .mockResolvedValueOnce(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.REPLACE, true]);
+
+            await optimizeNote.run(appMock, 'test-note-uuid');
+
+            expect(appMock.prompt).toHaveBeenCalledTimes(2);
+            expect(appMock.attachNoteMedia).toHaveBeenCalledTimes(1);
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Note Optimization Completed!'));
         });
     });
 
     describe('optimizeNote.run — Edge Cases & Guards', () => {
         it('alerts and stops if no images exist in note', async () => {
             appMock.getNoteImages.mockResolvedValue([]);
+
             await optimizeNote.run(appMock, 'test-note-uuid');
 
             expect(appMock.alert).toHaveBeenCalledWith('No images found in this note to optimize.');
             expect(appMock.prompt).not.toHaveBeenCalled();
         });
 
-        it('exits quietly if user cancels the prompt', async () => {
-            const blob = new Blob(['data']);
-            global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: jest.fn().mockResolvedValue(blob) });
-
-            appMock.getNoteImages.mockResolvedValue([{ src: 'https://example.com/img.jpg' }]);
+        it('exits quietly if user cancels the selector dialog', async () => {
             appMock.prompt.mockResolvedValue(null);
 
             await optimizeNote.run(appMock, 'test-note-uuid');
+
             expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
         });
 
-        it('alerts if user unchecks all images in the checklist', async () => {
-            const blob = new Blob(['data']);
-            global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: jest.fn().mockResolvedValue(blob) });
-
-            appMock.getNoteImages.mockResolvedValue([{ src: 'https://example.com/img.jpg' }]);
-            // Image unchecked: [false, '500kb', ...]
-            appMock.prompt.mockResolvedValue([false, '500kb', '500 KB', '0', 'image/jpeg', 'replace', true]);
+        it('alerts if user unchecks all images in the selector', async () => {
+            appMock.prompt.mockResolvedValue([false, false, 'batch']);
 
             await optimizeNote.run(appMock, 'test-note-uuid');
+
             expect(appMock.alert).toHaveBeenCalledWith('No images were selected for optimization.');
+            expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
         });
     });
 });
