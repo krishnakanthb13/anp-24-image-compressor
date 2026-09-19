@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { jest } from '@jest/globals';
-import { optimizeImage } from '../lib/optimizeImage.js';
+import { optimizeImage, downloadImageOption } from '../lib/optimizeImage.js';
 import { COMPRESSION_MODES } from '../lib/constants.js';
 
 describe('optimizeImage.js', () => {
@@ -83,6 +83,46 @@ describe('optimizeImage.js', () => {
             );
             expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('exported to new note'));
             expect(appMock.replaceNoteContent).not.toHaveBeenCalled();
+        });
+
+        it('downloads compressed image directly to device and leaves note untouched in download mode', async () => {
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+            appMock.prompt.mockResolvedValue(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.DOWNLOAD, true]);
+
+            await optimizeImage.run(appMock, { src: 'https://example.com/my-photo.png' });
+
+            expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
+            expect(appMock.context.updateImage).not.toHaveBeenCalled();
+            expect(clickSpy).toHaveBeenCalled();
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Image compressed & downloaded!'));
+
+            clickSpy.mockRestore();
+        });
+
+        it('both replaces image in-place and downloads copy when replace_and_download is selected', async () => {
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+            appMock.prompt.mockResolvedValue(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.REPLACE_AND_DOWNLOAD, true]);
+
+            await optimizeImage.run(appMock, { src: 'https://example.com/my-photo.png' });
+
+            expect(appMock.attachNoteMedia).toHaveBeenCalledTimes(1);
+            expect(appMock.context.updateImage).toHaveBeenCalledTimes(1);
+            expect(clickSpy).toHaveBeenCalled();
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('optimized surgically in-place & downloaded!'));
+
+            clickSpy.mockRestore();
+        });
+
+        it('supports dedicated downloadImageOption shortcut', async () => {
+            expect(await downloadImageOption.check(appMock, { src: 'https://example.com/img.png' })).toBe(true);
+            expect(await downloadImageOption.check(appMock, null)).toBe(false);
+
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+            appMock.prompt.mockResolvedValue(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.DOWNLOAD, true]);
+
+            await downloadImageOption.run(appMock, { src: 'https://example.com/img.png' });
+            expect(clickSpy).toHaveBeenCalled();
+            clickSpy.mockRestore();
         });
     });
 

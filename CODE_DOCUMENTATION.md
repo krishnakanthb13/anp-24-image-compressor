@@ -12,10 +12,12 @@ The **Image Compressor Plugin** inspects, analyzes, and optimizes images within 
 flowchart TD
     A[User triggers Action] --> B{Action Type}
     B -->|noteOption: Optimize note| C[optimizeNote.run]
-    B -->|imageOption: Optimize image| D[optimizeImage.run]
+    B -->|imageOption: Optimize| D[optimizeImage.run]
+    B -->|imageOption: Download| D2[downloadImageOption.run]
     
     C --> E[fetchWithCorsFallback for Note Images in Parallel]
     D --> F[fetchWithCorsFallback for Selected Image]
+    D2 --> F
     
     E --> G[Step 1: Clean Image Selector Dialog via withPreservedScroll]
     G --> H{Workflow Strategy Choice}
@@ -34,9 +36,13 @@ flowchart TD
     M --> P
     
     P -->|replace| Q[updateImageSurgically: Direct ProseMirror node swap with native caption]
+    P -->|download| QD[downloadDataUrl: Direct client-side browser file download]
+    P -->|replace_and_download| QB[updateImageSurgically + downloadDataUrl: Both in-place update & download]
     P -->|new_note| R[createCompressionReportNote: Export to new note in -reports/-image-compressor]
     
     Q --> S[Restore Viewport & Show Savings Report]
+    QD --> S
+    QB --> S
     R --> S
 ```
 
@@ -48,7 +54,8 @@ flowchart TD
 - Exposes standard Amplenote API hook points:
   - `constants`: Initial plugin runtime state (`imageCount: 0`).
   - `noteOption["Optimize note"]`: Guided 2-step workflow (`check`, `run`).
-  - `imageOption["Optimize image"]`: Live image inspection and compression workflow (`check`, `run`).
+  - `imageOption["Optimize"]`: Live image inspection and compression workflow (`check`, `run`).
+  - `imageOption["Download"]`: Direct 1-click shortcut defaulting to download mode (`check`, `run`).
   - `compressImage`: Engine method exported on the plugin root.
 
 ---
@@ -57,7 +64,11 @@ flowchart TD
 - `CORS_PROXY_URL`: Pinned HTTPS proxy for routing external media URLs.
 - `DEFAULT_MAX_SIZE_KB`: Configured to `500` (derived from `ds.md` specification).
 - `LIGHTWEIGHT_THRESHOLD_KB`: `150` KB threshold below which images are classified as already lightweight.
-- `COMPRESSION_MODES`: `REPLACE = "replace"`, `NEW_NOTE = "new_note"`.
+- `COMPRESSION_MODES`:
+  - `REPLACE = "replace"`: Surgical in-place replacement.
+  - `NEW_NOTE = "new_note"`: Non-destructive report note creation.
+  - `DOWNLOAD = "download"`: Direct download to user's device (note untouched).
+  - `REPLACE_AND_DOWNLOAD = "replace_and_download"`: In-place replacement plus local downloaded copy.
 - `REPORT_TAG`: `"-reports/-image-compressor"` applied to all generated report notes.
 - `COMPRESSION_CONFIG`: Stepping rules (`initialQuality = 0.9`, `minQuality = 0.1`, `qualityStep = 0.1`, `scaleStep = 0.8`, `minDimension = 100`).
 
@@ -85,6 +96,18 @@ flowchart TD
 #### `blobToDataUrl(blob)`
 - Asynchronously converts an image `Blob` into a base64-encoded Data URL (`data:...;base64,...`) using `FileReader` with fallback to `arrayBuffer` and `btoa`.
 - Guarantees full compatibility with Amplenote's `app.attachNoteMedia` API across all skip and pass-through paths (avoiding reliance on temporary or leaking `blob:` object URLs).
+
+#### `dataUrlToBlob(dataUrl)`
+- Safely parses base64 data URLs into binary `Blob` instances with explicit MIME type recovery.
+- Avoids browser URI payload length restrictions on large images.
+
+#### `getDownloadFilename(imageSrc, noteName, format, index)`
+- Derives clean, standardized, sanitized download filenames across platforms.
+- Extracts stem from URL or note title, trims non-alphanumeric characters, replaces delimiters with safe underscores (`_`), and appends `_compressed.<ext>`.
+
+#### `downloadDataUrl(dataUrlOrBlob, filename)`
+- Executes client-side browser file download via standard HTML5 `<a download="...">` anchor manipulation.
+- Uses `URL.createObjectURL(blob)` with automatic scheduled cleanup via `URL.revokeObjectURL(url)` (1.5s delay) to guarantee zero memory leaks.
 
 #### `fetchWithCorsFallback(rawUrl, primaryProxy)`
 - Executes an automated fallback cascade across multiple endpoints with a 15-second `AbortController` timeout per attempt:
@@ -151,6 +174,8 @@ flowchart TD
   - Loops sequentially through selected images (or fast-tracks if only 1 image selected), opening a tailored configuration dialog for each image with its exact size and format.
 - **Completion**:
   - In `replace` mode: calls `updateImageSurgically` for each image, updating only image objects with native captions without touching note markdown.
+  - In `download` mode: executes client-side downloads via `downloadDataUrl` with staggered `200ms` throttling to prevent popup blocks; active note stays 100% untouched.
+  - In `replace_and_download` mode: performs surgical in-place node update AND triggers client-side file downloads.
   - In `new_note` mode: calls `createCompressionReportNote`, attaches all media to the new report note, and leaves the active source note 100% pristine.
   - Delivers a comprehensive savings report with total note size before, after, skipped/failed metrics, and space saved.
 
@@ -158,16 +183,19 @@ flowchart TD
 
 ### 5. Single Image Optimizer (`lib/optimizeImage.js`)
 - **Workflow**:
-  1. Implements `check(app, image)` for valid image selection under action name `"Optimize image"`.
+  1. Implements `check(app, image)` for valid image selection under action names `"Optimize"` and `"Download"`.
   2. Pre-fetches metadata via `fetchWithCorsFallback` and displays live image statistics (size in bytes/KB/MB, resolution, format) in the dialog prompt.
   3. Contextualizes status header based on size:
      - Lightweight ($\le 150$ KB): `✅ Image is Already Optimized (31 KB)`.
      - Standard ($\le 500$ KB): `ℹ️ Image is Within Standard Limits (350 KB)`.
      - Large ($> 500$ KB): `⚠️ Large Image Detected (3.20 MB)`.
   4. Preserves note scroll position and anchors the viewport to the target image throughout the prompt and update cycle.
-  5. Allows configuring smart presets, custom size (KB/MB/%), dimension caps, format conversions, and output modes (`replace` vs `new_note`).
+  5. Allows configuring smart presets, custom size (KB/MB/%), dimension caps, format conversions, and 4 output modes (`replace`, `download`, `replace_and_download`, `new_note`).
   6. In `replace` mode: updates the image node surgically in-place via `updateImageSurgically`.
-  7. In `new_note` mode: exports the image to a new report note under `-reports/-image-compressor` with backlinks.
+  7. In `download` mode: directly downloads the compressed image to the user's OS downloads folder via `downloadDataUrl` with clean filename sanitization; note stays 100% untouched.
+  8. In `replace_and_download` mode: updates the image surgically in-place AND triggers device download.
+  9. In `new_note` mode: exports the image to a new report note under `-reports/-image-compressor` with backlinks.
+  10. Dedicated shortcut `downloadImageOption`: pre-selects `COMPRESSION_MODES.DOWNLOAD` for instant 1-click device download.
 
 ---
 
@@ -178,4 +206,4 @@ flowchart TD
 - **Packaging Logic**: Evaluates ESM modules into a self-contained IIFE (`(() => { ... return plugin; })()`) ensuring no global namespace pollution and full compatibility with Amplenote's plugin execution sandbox.
 - **Commands**:
   - `node esbuild.js 24`: Compiles bundle to `build/image-compressor.compiled.js`.
-  - `node --experimental-vm-modules node_modules/jest/bin/jest.js "anp-24-image-compressor/test"`: Runs full test suite.
+  - `node --experimental-vm-modules node_modules/jest/bin/jest.js anp-24-image-compressor`: Runs full test suite (66 tests across 5 suites).

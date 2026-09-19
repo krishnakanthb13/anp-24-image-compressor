@@ -5,13 +5,14 @@
  * Exposes:
  *  - constants: Default state tracker (imageCount)
  *  - noteOption["Optimize note"]: Guided 2-step note-level optimizer
- *  - imageOption["Optimize image"]: Live inspection and single-image optimizer
+ *  - imageOption["Optimize"]: Live inspection and single-image optimizer
+ *  - imageOption["Download"]: 1-click shortcut to compress and download image
  *  - compressImage: Core compression engine method
  */
 import { DEFAULT_CONSTANTS } from "./lib/constants.js";
 import { compressImage } from "./lib/compressor.js";
 import { optimizeNote } from "./lib/optimizeNote.js";
-import { optimizeImage } from "./lib/optimizeImage.js";
+import { optimizeImage, downloadImageOption } from "./lib/optimizeImage.js";
 
 const plugin = {
     constants: DEFAULT_CONSTANTS,
@@ -19,7 +20,8 @@ const plugin = {
         "Optimize note": optimizeNote
     },
     imageOption: {
-        "Optimize image": optimizeImage
+        "Optimize": optimizeImage,
+        "Download": downloadImageOption
     },
     compressImage
 };

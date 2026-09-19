@@ -6,8 +6,9 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 
 ## Actions & Options
 
-- 📝 **`noteOption["Optimize note"]`**: Note-level multi-image optimizer with guided 2-step workflow (Quick Batch or Step-by-Step Individual).
-- 🖼️ **`imageOption["Optimize image"]`**: Direct drop-down menu action on any individual image in your note with live metadata analysis and instant savings alerts.
+- 📝 **`noteOption["Optimize note"]`**: Note-level multi-image optimizer with guided 2-step workflow (Quick Batch or Step-by-Step Individual) and full download/replace flexibility.
+- 🖼️ **`imageOption["Optimize"]`**: Direct drop-down menu action on any image in your note with live metadata analysis, customizable targets, and output mode selection.
+- 📥 **`imageOption["Download"]`**: 1-click shortcut to immediately inspect, compress, and download an optimized copy directly to your device without modifying the note.
 
 ---
 
@@ -15,9 +16,11 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 
 - 📍 **Viewport & Scroll Position Preservation**:
   - Automatically captures the editor's scroll position and active image element before opening modal dialogs and seamlessly restores viewport alignment across multiple animation frames (`0ms`, `50ms`, `200ms`, `500ms`), preventing the editor from jumping or resetting cursor to the top of the note.
-- 🛡️ **Dual Output Modes**:
-  - **Surgical In-Place Replacement (`replace`)**: Uses direct ProseMirror image node swaps (`updateNoteImage` / `note.updateImage`). Updates only the target image's `src` and native `caption` property without reading, modifying, or reloading the note's markdown. Zero formatting disruption, zero task checklist resets, and zero scroll jumping.
-  - **Save to Report Note in `-reports/-image-compressor` (`new_note`)**: A non-destructive export mode that leaves the active note **100% untouched**. Automatically creates a dedicated report note filed under the `-reports/-image-compressor` tag, attaches all compressed images, adds before/after size benchmarks, and generates clickable backlinks to the source note.
+- 🛡️ **Four Flexible Output Modes**:
+  - **Replace in Note (`replace`) [Recommended]**: Direct ProseMirror image node swap (`updateNoteImage` / `note.updateImage`). Updates only the target image's `src` and native `caption` property without reading, modifying, or reloading the note's markdown. Zero formatting disruption, zero task checklist resets, and zero scroll jumping.
+  - **Download to Device (`download`)**: Direct client-side browser file download directly to your OS downloads folder. Leaves the active note **100% untouched**.
+  - **Both: Replace in Note & Download Copy (`replace_and_download`)**: Surgically updates the image inside the note while simultaneously downloading an optimized copy to your device.
+  - **Save to New Report Note in `-reports/-image-compressor` (`new_note`)**: A non-destructive export mode that leaves the active note **100% untouched**. Automatically creates a dedicated report note filed under the `-reports/-image-compressor` tag, attaches all compressed images, adds before/after size benchmarks, and generates clickable backlinks to the source note.
 - 🧙‍♂️ **Guided 2-Step Workflow (`noteOption` -> "Optimize note")**:
   - **Step 1 — Clean Image Selector**: Presents a clean, focused checklist showing each image's size, dimensions ($W \times H$), and `[Needs Optimization]` vs `[Optimized]` status badges, without overwhelming the user with settings.
   - **Step 2 — Flexible Strategy Choice**:
@@ -30,7 +33,7 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
   - **Smart Dimension Filtering**: Dimension caps are scaled to the image's actual resolution (e.g., a 612 px image will only offer `Keep 612 px` or `Max 400 px Thumbnail`, not irrelevant 1920 px Full HD options).
   - **Contextual Format Conversion**: Format conversion options are tailored to whether the source image is PNG/WebP (70–90% reduction via JPEG) or already standard JPEG.
 - 📊 **Real-Time Image Inspection**: Pre-fetches and displays exact file sizes (in KB/MB), pixel dimensions ($W \times H$), and MIME types before compressing.
-- 🎯 **Single-Image Optimization (`imageOption` -> "Optimize image")**: Direct drop-down menu action on any individual image in your note with live metadata analysis and instant savings alerts.
+- 🎯 **Single-Image Optimization (`imageOption` -> "Optimize")**: Direct drop-down menu action on any individual image in your note with live metadata analysis and instant savings alerts.
 - ⚡ **Presets & Flexible Custom Sizing**: Choose from smart contextual presets (`500 KB`, `250 KB`, `100 KB`, `50% reduction`, `25% reduction`) or enter custom targets supporting `KB`, `MB`, and `%`.
 - 🔄 **PNG/WebP to JPEG Optimization**: Optional automatic format conversion to reduce photographic screenshots and PNGs by 70–90%.
 - 📐 **Max Width Dimension Limiting**: Constrain massive 4K/iPhone camera photos to standard display sizes (`1920 px Full HD`, `1280 px HD`, `800 px Inline`) preserving aspect ratio.
@@ -42,12 +45,22 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 
 ## Output Modes Breakdown
 
-### 1. In-Place Surgical Replacement (`replace`)
+### 1. Replace in Note (`replace`) [Recommended]
 - Targets only the specific image object in Amplenote's internal document tree using `app.context.updateImage({ src, caption })` or `app.updateNoteImage(noteHandle, image, { src, caption })`.
-- Does **not** replace the full note markdown.
+- Does **not** replace or re-parse the full note markdown.
 - Directly updates the image `src` URL and binds the compression audit caption (`Compressed: 355 KB (was 3.98 MB — 91% saved)`) to Amplenote's native caption container.
 
-### 2. Save to New Report Note (`new_note`)
+### 2. Download to Device (`download`)
+- Directly triggers a client-side browser file download using standard HTML5 `<a download="...">` anchor techniques with `URL.createObjectURL(blob)`.
+- Automatically names files cleanly (e.g. `vacation_photo_compressed.jpg` or `Sprint_Notes_1_compressed.png`).
+- Leaves the active note **100% untouched and unmodified**.
+- Includes automatic 1.5s delayed cleanup via `URL.revokeObjectURL(url)` to prevent browser memory leaks.
+
+### 3. Both: Replace in Note & Download Copy (`replace_and_download`)
+- Surgically updates the image in-place within the note **and** simultaneously triggers a local download to your device.
+- Perfect for archiving an offline copy of the compressed image while keeping your note lean and fast.
+
+### 4. Save to New Report Note (`new_note`)
 - Creates a dedicated note tagged with `["-reports/-image-compressor"]` titled `YYYY-MM-DD HH:mm:ss`.
 - Attaches the newly compressed images to the report note with the audit metrics attached directly as the image caption: `![Image 1 • 250 KB (was 1.2 MB — 79% saved)](hostedURL)`.
 - Binds native ProseMirror captions to the image cards in the report note.
@@ -64,9 +77,9 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 | Field | Value |
 | :--- | :--- |
 | `name` | Image Compressor |
-| `description` | Inspect and optimize oversized images in your notes with intelligent presets, guided batch/individual workflows, and non-destructive options. |
+| `description` | Inspect and optimize oversized images in your notes with intelligent presets, guided batch/individual workflows, direct downloads, and non-destructive options. |
 | `icon` | photo_size_select_large |
-| `instructions` | Use the note options menu (...) -> "Optimize note" to inspect and select images to compress, or click the triple dot menu on any image -> "Optimize image" to inspect and optimize an individual image. |
+| `instructions` | Use the note options menu (...) -> "Optimize note" to inspect and select images to compress, or click the triple dot menu on any image -> "Optimize" (or "Download") to inspect, compress, or download an individual image. |
 
 3. **Insert Code Block**: Below the metadata table, insert a Javascript code block (type ` ```javascript `).
 4. **Paste Compiled Code**: Copy the entire contents of [`build/image-compressor.compiled.js`](build/image-compressor.compiled.js) and paste it into the code block.
@@ -112,15 +125,24 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 
 ---
 
-### 2. Optimize Image (`imageOption` -> "Optimize image")
-1. Click the drop-down menu on any image in a note -> **Optimize image**.
+### 2. Optimize Image (`imageOption` -> "Optimize")
+1. Click the drop-down menu on any image in a note -> **Optimize**.
 2. The dialog immediately displays:
    - Current file size in KB/MB and exact byte count.
    - Pixel dimensions ($W \times H$).
    - Current format and animated GIF detection.
    - Intelligent status badge (`Already Optimized`, `Within Limits`, or `Large Image`).
-3. Select your target preset (with calculated percentage savings), custom threshold, dimension limit, and placement mode.
-4. The image is compressed and attached seamlessly with a detailed before/after savings summary and caption update while your scroll position is preserved.
+3. Select your target preset (with calculated percentage savings), custom threshold, dimension limit, and placement mode (`replace`, `download`, `replace_and_download`, `new_note`).
+4. The image is compressed and processed according to your chosen mode with a detailed before/after savings summary.
+
+---
+
+### 3. Download Compressed Image (`imageOption` -> "Download")
+1. Click the drop-down menu on any image in a note -> **Download**.
+2. Opens the compression dialog with the output mode pre-selected to **Download compressed image to device**.
+3. Choose your desired target size profile or custom size limit and click Submit.
+4. The plugin downscales the image in the browser and triggers an immediate client-side download to your computer or mobile device.
+5. Your active note remains **100% untouched**.
 
 ---
 
@@ -128,21 +150,21 @@ A high-performance, privacy-first Amplenote plugin that intelligently inspects, 
 
 ```
 anp-24-image-compressor/
-├── image-compressor.js       ← Slim plugin entry point
+├── image-compressor.js       ← Slim plugin entry point exposing noteOption & imageOption hooks
 ├── build/
 │   └── image-compressor.compiled.js  ← Compiled IIFE bundle
 ├── lib/
-│   ├── constants.js          ← Thresholds, presets, dimension limits, quality steps
-│   ├── compressor.js         ← Metadata inspection, CORS fallback, scroll lock, multi-pass canvas loop
-│   ├── optimizeNote.js       ← noteOption guided 2-step workflow handler
-│   ├── optimizeImage.js      ← imageOption live inspection & optimization handler
+│   ├── constants.js          ← Thresholds, presets, dimension limits, 4 compression modes
+│   ├── compressor.js         ← Metadata inspection, CORS fallback, scroll lock, canvas loop, downloads
+│   ├── optimizeNote.js       ← noteOption guided 2-step workflow handler (batch/individual/download)
+│   ├── optimizeImage.js      ← imageOption live inspection, optimization, & downloadImageOption shortcut
 │   └── index.js              ← Barrel export
 └── test/
-    ├── constants.test.js     ← Unit tests for constants
-    ├── compressor.test.js    ← Tests for compression engine, CORS cascade, smart presets, scroll anchor
-    ├── optimizeNote.test.js  ← Tests for guided workflows, batch & step-by-step modes, captions
-    ├── optimizeImage.test.js ← Tests for image inspection, captions, & format conversion
-    └── image-compressor.test.js ← API compliance tests
+    ├── constants.test.js     ← Unit tests for constants & modes
+    ├── compressor.test.js    ← Tests for engine, CORS cascade, presets, downloadDataUrl, dataUrlToBlob
+    ├── optimizeNote.test.js  ← Tests for guided workflows, batch & step-by-step modes, batch downloads
+    ├── optimizeImage.test.js ← Tests for image inspection, downloads, replace_and_download, shortcuts
+    └── image-compressor.test.js ← API compliance tests (66 tests total)
 ```
 
 ---
@@ -155,6 +177,6 @@ To compile the modular source code into the production bundle:
 # Build specific plugin ID
 node esbuild.js 24
 
-# Run test suite
-node --experimental-vm-modules node_modules/jest/bin/jest.js "anp-24-image-compressor/test"
+# Run test suite (66 tests across 5 suites)
+node --experimental-vm-modules node_modules/jest/bin/jest.js anp-24-image-compressor
 ```

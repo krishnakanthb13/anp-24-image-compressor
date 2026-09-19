@@ -13,7 +13,10 @@ import {
     withPreservedScroll,
     fetchWithCorsFallback,
     updateImageSurgically,
-    createCompressionReportNote
+    createCompressionReportNote,
+    dataUrlToBlob,
+    getDownloadFilename,
+    downloadDataUrl
 } from '../lib/compressor.js';
 
 describe('compressor.js', () => {
@@ -298,5 +301,77 @@ describe('compressor.js', () => {
             );
         });
     });
+
+    describe('dataUrlToBlob', () => {
+        it('converts valid base64 data URL to Blob with correct MIME type', () => {
+            const dataUrl = 'data:image/jpeg;base64,aGVsbG8gd29ybGQ=';
+            const blob = dataUrlToBlob(dataUrl);
+            expect(blob).toBeInstanceOf(Blob);
+            expect(blob.type).toBe('image/jpeg');
+            expect(blob.size).toBe(11);
+        });
+
+        it('returns null for invalid or empty input', () => {
+            expect(dataUrlToBlob(null)).toBeNull();
+            expect(dataUrlToBlob('')).toBeNull();
+            expect(dataUrlToBlob('invalid-string')).toBeNull();
+        });
+    });
+
+    describe('getDownloadFilename', () => {
+        it('extracts filename stem from clean URL path', () => {
+            const filename = getDownloadFilename('https://example.com/assets/vacation_photo.png', 'Note Title', 'image/png');
+            expect(filename).toBe('vacation_photo_compressed.png');
+        });
+
+        it('falls back to note name when URL has UUID or query params', () => {
+            const filename = getDownloadFilename('https://images.amplenote.com/019183ab-45cd-78ef-9012-3456789abcde', 'Project Sprint 14', 'image/jpeg');
+            expect(filename).toBe('Project_Sprint_14_compressed.jpg');
+        });
+
+        it('includes index when part of a multi-image note', () => {
+            const filename = getDownloadFilename('', 'Sprint Notes', 'image/webp', 2);
+            expect(filename).toBe('Sprint_Notes_2_compressed.webp');
+        });
+
+        it('sanitizes special characters into safe underscores', () => {
+            const filename = getDownloadFilename('', 'Report: Q3 / Final & Draft!', 'image/jpeg');
+            expect(filename).toBe('Report_Q3_Final_Draft_compressed.jpg');
+        });
+    });
+
+    describe('downloadDataUrl', () => {
+        it('creates an anchor element, sets download filename, and clicks it', () => {
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+            const appendSpy = jest.spyOn(document.body, 'appendChild');
+
+            const dataUrl = 'data:image/jpeg;base64,aGVsbG8=';
+            const success = downloadDataUrl(dataUrl, 'test_image_compressed.jpg');
+
+            expect(success).toBe(true);
+            expect(appendSpy).toHaveBeenCalled();
+            expect(clickSpy).toHaveBeenCalled();
+
+            clickSpy.mockRestore();
+            appendSpy.mockRestore();
+        });
+
+        it('accepts a Blob directly and creates an object URL', () => {
+            const blob = new Blob(['sample-content'], { type: 'image/jpeg' });
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+            const success = downloadDataUrl(blob, 'blob_image_compressed.jpg');
+            expect(success).toBe(true);
+            expect(clickSpy).toHaveBeenCalled();
+
+            clickSpy.mockRestore();
+        });
+
+        it('returns false for null or invalid input', () => {
+            expect(downloadDataUrl(null, 'file.jpg')).toBe(false);
+            expect(downloadDataUrl(12345, 'file.jpg')).toBe(false);
+        });
+    });
 });
+
 

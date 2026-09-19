@@ -19,11 +19,18 @@ describe('image-compressor.js — Plugin Definition', () => {
             expect(typeof plugin.noteOption['Optimize note'].check).toBe('function');
         });
 
-        it('exposes "Optimize image" under imageOption', () => {
+        it('exposes "Optimize" under imageOption', () => {
             expect(plugin.imageOption).toBeDefined();
-            expect(plugin.imageOption['Optimize image']).toBeDefined();
-            expect(typeof plugin.imageOption['Optimize image'].run).toBe('function');
-            expect(typeof plugin.imageOption['Optimize image'].check).toBe('function');
+            expect(plugin.imageOption['Optimize']).toBeDefined();
+            expect(typeof plugin.imageOption['Optimize'].run).toBe('function');
+            expect(typeof plugin.imageOption['Optimize'].check).toBe('function');
+        });
+
+        it('exposes "Download" under imageOption', () => {
+            expect(plugin.imageOption).toBeDefined();
+            expect(plugin.imageOption['Download']).toBeDefined();
+            expect(typeof plugin.imageOption['Download'].run).toBe('function');
+            expect(typeof plugin.imageOption['Download'].check).toBe('function');
         });
 
         it('exposes compressImage engine method', () => {

@@ -102,6 +102,40 @@ describe('optimizeNote.js', () => {
             expect(appMock.attachNoteMedia).toHaveBeenCalledTimes(1);
             expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Note Optimization Completed!'));
         });
+
+        it('downloads compressed images directly to device and leaves note untouched in batch download mode', async () => {
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+            appMock.prompt
+                .mockResolvedValueOnce([true, true, 'batch'])
+                .mockResolvedValueOnce(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.DOWNLOAD, true]);
+
+            await optimizeNote.run(appMock, 'test-note-uuid');
+
+            expect(appMock.attachNoteMedia).not.toHaveBeenCalled();
+            expect(appMock.updateNoteImage).not.toHaveBeenCalled();
+            expect(clickSpy).toHaveBeenCalledTimes(2);
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Downloaded 2 images to your device downloads'));
+
+            clickSpy.mockRestore();
+        });
+
+        it('both replaces images in-place and downloads copies in replace_and_download batch mode', async () => {
+            const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+            appMock.prompt
+                .mockResolvedValueOnce([true, true, 'batch'])
+                .mockResolvedValueOnce(['500kb', '500 KB', '0', 'image/jpeg', COMPRESSION_MODES.REPLACE_AND_DOWNLOAD, true]);
+
+            await optimizeNote.run(appMock, 'test-note-uuid');
+
+            expect(appMock.attachNoteMedia).toHaveBeenCalledTimes(2);
+            expect(appMock.updateNoteImage).toHaveBeenCalledTimes(2);
+            expect(clickSpy).toHaveBeenCalledTimes(2);
+            expect(appMock.alert).toHaveBeenCalledWith(expect.stringContaining('Replaced 2 in-place surgically & downloaded 2 copies to device'));
+
+            clickSpy.mockRestore();
+        });
     });
 
     describe('optimizeNote.run — Edge Cases & Guards', () => {

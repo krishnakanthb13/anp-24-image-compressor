@@ -1,5 +1,29 @@
 # Release Notes: Amplenote Image Compressor
 
+## v0.0.9 (2026-09-19)
+
+### 🚀 New Features
+- **Simplified Image Context Menu Actions**: Streamlined image drop-down menu actions to strictly **`imageOption["Optimize"]`** and **`imageOption["Download"]`**. Eliminates repetitive phrasing (`"image"` and `"compressed image"`) so Amplenote cleanly renders them as:
+  - `Image Compressor: Optimize`
+  - `Image Compressor: Download`
+- **User-Friendly Output Mode Labels**: Replaced technical internal jargon (`"(Surgical)"`) across all compression dialogs with clear, decision-oriented labels:
+  - `Replace in note (Recommended)`: In-place update of only the image element with native caption; zero markdown re-parsing or checklist resets.
+  - `Download to device (Keep original in note)`: Direct client-side download; active note remains 100% untouched.
+  - `Both: Replace in note & download copy`: Updates image in note and triggers local device download simultaneously.
+  - `Save to new report note (-reports/-image-compressor)`: Non-destructive export to a dedicated audit note.
+- **Direct Client-Side Downloads (`COMPRESSION_MODES.DOWNLOAD`)**: Added an output mode allowing users to download compressed images directly to their operating system's downloads folder.
+- **Dual-Action Mode (`COMPRESSION_MODES.REPLACE_AND_DOWNLOAD`)**: In-place note update coupled with immediate local file download for offline archival.
+- **Dedicated 1-Click Download Shortcut (`imageOption["Download"]`)**: Direct image context menu shortcut pre-configured for downloading.
+- **Batch Downloader with Throttling**: Extended `optimizeNote` (both Quick Batch and Step-by-Step Individual modes) to support downloading multiple compressed images sequentially, utilizing a `200ms` staggered interval to bypass browser popup blockers.
+- **Cross-Platform Filename Sanitization (`getDownloadFilename`)**: Automatically derives clean, filesystem-safe filenames from URL stems or note titles, removing forbidden characters and trimming trailing delimiters (`_compressed.<ext>`).
+- **Memory-Safe Anchor Triggers (`downloadDataUrl`)**: Converts data URLs to binary `Blob` instances via `dataUrlToBlob`, mounts temporary `<a download>` elements, and schedules delayed `URL.revokeObjectURL(url)` (1.5s delay) to guarantee zero memory leaks and eliminate base64 URL length limits.
+
+### 🧪 Tests & Quality Assurance
+- **Full Test Suite Expansion**: Expanded automated unit test suite from 51 to 66 tests across all 5 test suites (`constants`, `compressor`, `optimizeImage`, `optimizeNote`, `image-compressor`), achieving 100% pass rate.
+- **Rebuilt Production Bundle**: Re-compiled production IIFE bundle to `build/image-compressor.compiled.js`.
+
+---
+
 ## v0.0.7 (2026-09-01)
 
 ### 🚀 New Features

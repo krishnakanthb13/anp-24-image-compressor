@@ -17,9 +17,11 @@ describe('constants.js', () => {
             expect(DEFAULT_MAX_SIZE_KB).toBe(500);
         });
 
-        it('defines replace and new_note compression modes and report tag', () => {
+        it('defines replace, new_note, download, and replace_and_download compression modes and report tag', () => {
             expect(COMPRESSION_MODES.REPLACE).toBe('replace');
             expect(COMPRESSION_MODES.NEW_NOTE).toBe('new_note');
+            expect(COMPRESSION_MODES.DOWNLOAD).toBe('download');
+            expect(COMPRESSION_MODES.REPLACE_AND_DOWNLOAD).toBe('replace_and_download');
             expect(REPORT_TAG).toBe('-reports/-image-compressor');
         });
 

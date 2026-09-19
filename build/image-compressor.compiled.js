@@ -5,7 +5,9 @@ var DEFAULT_MAX_SIZE_KB = 500;
 var LIGHTWEIGHT_THRESHOLD_KB = 150;
 var COMPRESSION_MODES = {
   REPLACE: "replace",
-  NEW_NOTE: "new_note"
+  NEW_NOTE: "new_note",
+  DOWNLOAD: "download",
+  REPLACE_AND_DOWNLOAD: "replace_and_download"
 };
 var REPORT_TAG = "-reports/-image-compressor";
 var COMPRESSION_CONFIG = {
@@ -481,6 +483,105 @@ async function createCompressionReportNote(app, originalNoteUUID, items, tag = R
   }
   return reportUUID;
 }
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  try {
+    const parts = dataUrl.split(",");
+    if (parts.length < 2) return null;
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+    const byteString = atob(parts[1]);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], { type: mimeType });
+  } catch (e) {
+    console.warn("Could not convert dataUrl to Blob:", e);
+    return null;
+  }
+}
+function getDownloadFilename(imageSrc = "", noteName = "", format = "image/jpeg", index = null) {
+  let baseName = "";
+  if (typeof imageSrc === "string" && imageSrc.trim() && !imageSrc.startsWith("data:")) {
+    try {
+      const cleanUrl = imageSrc.split("?")[0].split("#")[0];
+      const rawFilename = cleanUrl.substring(cleanUrl.lastIndexOf("/") + 1);
+      if (rawFilename) {
+        const stem = rawFilename.substring(0, rawFilename.lastIndexOf(".")) || rawFilename;
+        if (stem && stem.length > 1 && !/^[0-9a-fA-F-]{20,}$/.test(stem)) {
+          baseName = stem;
+        }
+      }
+    } catch {
+    }
+  }
+  if (!baseName) {
+    const cleanNote = (noteName || "image").trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    const idxStr = index !== null && index !== void 0 ? `_${index}` : "";
+    baseName = `${cleanNote || "image"}${idxStr}`;
+  }
+  baseName = baseName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  if (!baseName) {
+    baseName = "image";
+  }
+  let ext = ".jpg";
+  if (format === "image/png" || typeof format === "string" && format.includes("png")) {
+    ext = ".png";
+  } else if (format === "image/webp" || typeof format === "string" && format.includes("webp")) {
+    ext = ".webp";
+  }
+  return `${baseName}_compressed${ext}`;
+}
+function downloadDataUrl(dataUrlOrBlob, filename) {
+  if (typeof document === "undefined") {
+    console.warn("downloadDataUrl: document is not available in this context.");
+    return false;
+  }
+  try {
+    let blobUrl = null;
+    let finalHref = "";
+    if (dataUrlOrBlob instanceof Blob) {
+      if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+        blobUrl = URL.createObjectURL(dataUrlOrBlob);
+        finalHref = blobUrl;
+      }
+    } else if (typeof dataUrlOrBlob === "string") {
+      const blob = dataUrlToBlob(dataUrlOrBlob);
+      if (blob && typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+        blobUrl = URL.createObjectURL(blob);
+        finalHref = blobUrl;
+      } else {
+        finalHref = dataUrlOrBlob;
+      }
+    } else {
+      return false;
+    }
+    const link = document.createElement("a");
+    link.style.display = "none";
+    link.href = finalHref;
+    link.download = filename || "compressed-image.jpg";
+    const container = document.body || document.documentElement;
+    container.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      try {
+        if (link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+        if (blobUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+          URL.revokeObjectURL(blobUrl);
+        }
+      } catch {
+      }
+    }, 1500);
+    return true;
+  } catch (err) {
+    console.error("Failed to trigger download in downloadDataUrl:", err);
+    return false;
+  }
+}
 
 // anp-24-image-compressor/lib/optimizeNote.js
 var optimizeNote = {
@@ -573,6 +674,8 @@ var optimizeNote = {
         let processedCount = 0;
         let skippedCount = 0;
         let failedCount = 0;
+        let downloadedCount = 0;
+        let replacedCount = 0;
         let newNoteItems = [];
         if (isBatch) {
           const maxImgBytes = Math.max(...selectedImages.map((img) => img.size || 0));
@@ -591,7 +694,7 @@ var optimizeNote = {
               value: smartDefault
             },
             {
-              label: "Max Width Limit for All Images",
+              label: "Max Width Limit",
               type: "select",
               options: [
                 { label: "Keep Original Dimensions", value: "0" },
@@ -615,8 +718,10 @@ var optimizeNote = {
               label: "Output Mode",
               type: "select",
               options: [
-                { label: "Replace existing images in-place (Surgical)", value: COMPRESSION_MODES.REPLACE },
-                { label: `Save to new report note in ${REPORT_TAG}`, value: COMPRESSION_MODES.NEW_NOTE }
+                { label: "Replace in note (Recommended)", value: COMPRESSION_MODES.REPLACE },
+                { label: "Download to device (Keep originals in note)", value: COMPRESSION_MODES.DOWNLOAD },
+                { label: "Both: Replace in note & download copies", value: COMPRESSION_MODES.REPLACE_AND_DOWNLOAD },
+                { label: `Save to new report note (${REPORT_TAG})`, value: COMPRESSION_MODES.NEW_NOTE }
               ],
               value: COMPRESSION_MODES.REPLACE
             },
@@ -678,9 +783,27 @@ var optimizeNote = {
                     originalBytes: result.originalBytes,
                     finalBytes: result.finalBytes
                   });
+                } else if (mode === COMPRESSION_MODES.DOWNLOAD) {
+                  const filename = getDownloadFilename(img.src, app.context?.noteName, formatChoice, (img.originalIndex ?? processedCount) + 1);
+                  downloadDataUrl(result.dataUrl, filename);
+                  downloadedCount += 1;
+                  if (selectedImages.length > 1) {
+                    await new Promise((r) => setTimeout(r, 200));
+                  }
+                } else if (mode === COMPRESSION_MODES.REPLACE_AND_DOWNLOAD) {
+                  const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
+                  await updateImageSurgically(app, noteHandle, img, { src: fileURL, caption: auditCaption });
+                  replacedCount += 1;
+                  const filename = getDownloadFilename(img.src, app.context?.noteName, formatChoice, (img.originalIndex ?? processedCount) + 1);
+                  downloadDataUrl(result.dataUrl, filename);
+                  downloadedCount += 1;
+                  if (selectedImages.length > 1) {
+                    await new Promise((r) => setTimeout(r, 200));
+                  }
                 } else {
                   const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
                   await updateImageSurgically(app, noteHandle, img, { src: fileURL, caption: auditCaption });
+                  replacedCount += 1;
                 }
                 processedCount += 1;
               }
@@ -732,8 +855,10 @@ var optimizeNote = {
                 label: "Output Mode",
                 type: "select",
                 options: [
-                  { label: "Replace existing image in-place (Surgical)", value: COMPRESSION_MODES.REPLACE },
-                  { label: `Save to new report note in ${REPORT_TAG}`, value: COMPRESSION_MODES.NEW_NOTE }
+                  { label: "Replace in note (Recommended)", value: COMPRESSION_MODES.REPLACE },
+                  { label: "Download to device (Keep original in note)", value: COMPRESSION_MODES.DOWNLOAD },
+                  { label: "Both: Replace in note & download copy", value: COMPRESSION_MODES.REPLACE_AND_DOWNLOAD },
+                  { label: `Save to new report note (${REPORT_TAG})`, value: COMPRESSION_MODES.NEW_NOTE }
                 ],
                 value: COMPRESSION_MODES.REPLACE
               },
@@ -795,9 +920,21 @@ var optimizeNote = {
                     originalBytes: result.originalBytes,
                     finalBytes: result.finalBytes
                   });
+                } else if (mode === COMPRESSION_MODES.DOWNLOAD) {
+                  const filename = getDownloadFilename(img.src, app.context?.noteName, formatChoice, (img.originalIndex ?? i) + 1);
+                  downloadDataUrl(result.dataUrl, filename);
+                  downloadedCount += 1;
+                } else if (mode === COMPRESSION_MODES.REPLACE_AND_DOWNLOAD) {
+                  const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
+                  await updateImageSurgically(app, noteHandle, img, { src: fileURL, caption: auditCaption });
+                  replacedCount += 1;
+                  const filename = getDownloadFilename(img.src, app.context?.noteName, formatChoice, (img.originalIndex ?? i) + 1);
+                  downloadDataUrl(result.dataUrl, filename);
+                  downloadedCount += 1;
                 } else {
                   const fileURL = await app.attachNoteMedia(noteHandle, result.dataUrl);
                   await updateImageSurgically(app, noteHandle, img, { src: fileURL, caption: auditCaption });
+                  replacedCount += 1;
                 }
                 processedCount += 1;
               }
@@ -840,6 +977,12 @@ var optimizeNote = {
           report += `\u2022 Exported: Saved to new note under "${REPORT_TAG}"
 `;
           report += `\u2022 Original Note: Completely untouched`;
+        } else if (downloadedCount > 0 && replacedCount === 0) {
+          report += `\u2022 Mode: Downloaded ${downloadedCount} image${downloadedCount === 1 ? "" : "s"} to your device downloads
+`;
+          report += `\u2022 Original Note: Completely untouched`;
+        } else if (downloadedCount > 0 && replacedCount > 0) {
+          report += `\u2022 Mode: Replaced ${replacedCount} in-place surgically & downloaded ${downloadedCount} ${downloadedCount === 1 ? "copy" : "copies"} to device`;
         } else {
           report += `\u2022 Mode: Replaced in-place surgically (note structure preserved)`;
         }
@@ -857,11 +1000,12 @@ var optimizeImage = {
   check: async function(app, image) {
     return Boolean(image && image.src);
   },
-  run: async function(app, image) {
+  run: async function(app, image, config = {}) {
     if (!image || !image.src) {
       await app.alert("No valid image selected.");
       return;
     }
+    const initialMode = config?.defaultMode || COMPRESSION_MODES.REPLACE;
     return await withPreservedScroll(image.src, async () => {
       try {
         let meta = null;
@@ -931,10 +1075,12 @@ var optimizeImage = {
             label: "Output Mode",
             type: "select",
             options: [
-              { label: "Replace existing image in-place (Surgical)", value: COMPRESSION_MODES.REPLACE },
-              { label: `Save to new report note in ${REPORT_TAG}`, value: COMPRESSION_MODES.NEW_NOTE }
+              { label: "Replace in note (Recommended)", value: COMPRESSION_MODES.REPLACE },
+              { label: "Download to device (Keep original in note)", value: COMPRESSION_MODES.DOWNLOAD },
+              { label: "Both: Replace in note & download copy", value: COMPRESSION_MODES.REPLACE_AND_DOWNLOAD },
+              { label: `Save to new report note (${REPORT_TAG})`, value: COMPRESSION_MODES.NEW_NOTE }
             ],
-            value: COMPRESSION_MODES.REPLACE
+            value: initialMode
           },
           {
             label: "Skip GIF to preserve animation",
@@ -951,7 +1097,7 @@ var optimizeImage = {
         const customInput = resultArray[1] || smartDefaultTarget;
         const maxDimension = Number(resultArray[2]) || 0;
         const formatChoice = resultArray[3] || "image/jpeg";
-        const mode = resultArray[4] || COMPRESSION_MODES.REPLACE;
+        const mode = resultArray[4] || initialMode;
         const preserveGif = Boolean(resultArray[5] === true || resultArray[5] === "true" || resultArray[5] === 1);
         const originalBytes = meta?.size || 0;
         let targetSizeBytes;
@@ -1007,6 +1153,48 @@ var optimizeImage = {
 `;
           report += `\u2022 Original Note: Completely untouched`;
           await app.alert(report);
+        } else if (mode === COMPRESSION_MODES.DOWNLOAD) {
+          const filename = getDownloadFilename(image.src, app.context?.noteName, formatChoice);
+          downloadDataUrl(compressResult.dataUrl, filename);
+          let report = `\u{1F389} Image compressed & downloaded!
+
+`;
+          report += `\u2022 Filename: ${filename}
+`;
+          report += `\u2022 Before: ${beforeStr}
+`;
+          report += `\u2022 After: ${afterStr}
+`;
+          report += `\u2022 Space Saved: ${formatBytes(spaceSaved)} (${percentSaved}% reduction)
+`;
+          report += `\u2022 Saved To: Your browser downloads folder
+`;
+          report += `\u2022 Original Note: Completely untouched`;
+          await app.alert(report);
+        } else if (mode === COMPRESSION_MODES.REPLACE_AND_DOWNLOAD) {
+          if (!noteHandle) {
+            await app.alert("Could not identify the note containing this image.");
+            return;
+          }
+          const fileURL = await app.attachNoteMedia(noteHandle, compressResult.dataUrl);
+          await updateImageSurgically(app, noteHandle, image, { src: fileURL, caption: auditCaption });
+          const filename = getDownloadFilename(image.src, app.context?.noteName, formatChoice);
+          downloadDataUrl(compressResult.dataUrl, filename);
+          let report = `\u{1F389} Image optimized surgically in-place & downloaded!
+
+`;
+          report += `\u2022 Filename: ${filename}
+`;
+          report += `\u2022 Before: ${beforeStr}
+`;
+          report += `\u2022 After: ${afterStr}
+`;
+          report += `\u2022 Space Saved: ${formatBytes(spaceSaved)} (${percentSaved}% reduction)
+`;
+          report += `\u2022 Note Caption: Updated with compression metrics
+`;
+          report += `\u2022 Saved To: Your browser downloads folder`;
+          await app.alert(report);
         } else {
           if (!noteHandle) {
             await app.alert("Could not identify the note containing this image.");
@@ -1040,6 +1228,14 @@ var optimizeImage = {
     });
   }
 };
+var downloadImageOption = {
+  check: async function(app, image) {
+    return Boolean(image && image.src);
+  },
+  run: async function(app, image) {
+    return await optimizeImage.run.call(this, app, image, { defaultMode: COMPRESSION_MODES.DOWNLOAD });
+  }
+};
 
 // anp-24-image-compressor/image-compressor.js
 var plugin = {
@@ -1048,7 +1244,8 @@ var plugin = {
     "Optimize note": optimizeNote
   },
   imageOption: {
-    "Optimize image": optimizeImage
+    "Optimize": optimizeImage,
+    "Download": downloadImageOption
   },
   compressImage
 };
